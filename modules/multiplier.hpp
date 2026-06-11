@@ -6,13 +6,17 @@ namespace StochasticSimulator {
 
 class Multiplier {
 public:
-  // todo: consider making a struct for return data types like ideal, observed, error, and zce?
+    // Default constructor
+    Multiplier() = default;
 
     /**
-     * Computes stochastic multiplication by passing two bitstreams through
-     * an AND gate and returning the estimated output probability.
+     * @brief Performs stochastic multiplication on two single bits.
+     *  standard hardware AND gate.
+     * * @param lhs The bit from the left-hand side stream.
+     * @param rhs The bit from the right-hand side stream.
+     * @return true if both bits are 1, false otherwise.
      */
-    double multiply(const std::vector<bool>& lhs, const std::vector<bool>& rhs) const;
+    bool multiply(bool lhs, bool rhs) const;
 };
 
 }  // namespace StochasticSimulator
