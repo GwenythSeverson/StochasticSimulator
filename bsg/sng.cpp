@@ -1,0 +1,1 @@
+// Stochastic number generator (SNG) implementation using a linear feedback shift register (LFSR)

@@ -6,18 +6,9 @@ Organization in modules is a C++ representation of the architecture of each kind
 GUnit/Gtests will be implimented, with a current plan to create structs that hold trial records, bit stream records, and maybe a function that records a snapshot at every step to put into a CSV to generate grpahs with in MATLAB. 
 
 ## Setup
-1. Clone the repo with submodules:
-   git clone --recurse-submodules <your-repo-url>
+vcpkg for gtest/gunit- will make setup instructions or make easier for someone to use later
 
-2. Install vcpkg:
-   git clone https://github.com/microsoft/vcpkg
-   cd vcpkg
-   ./bootstrap-vcpkg.sh
-
-3. Install dependencies via vcpkg:
-   vcpkg install gtest
-
-4. Build:
-   mkdir build && cd build
-   cmake ..
-   cmake --build .
+## File explanations
+bsg folder- Bit Stream Generator with lfsr and sotchastic number generator
+Modeules-
+Tests-
