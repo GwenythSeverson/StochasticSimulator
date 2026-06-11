@@ -4,6 +4,7 @@
 
 namespace StochasticSimulator {
 
+  //COMPLETELY STATELESS. NOT LIKE ADDERS AND DIVIDERS.
 class Multiplier {
 public:
     // Default constructor

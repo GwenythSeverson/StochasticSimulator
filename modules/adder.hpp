@@ -4,12 +4,10 @@
 
 namespace StochasticSimulator {
 
+
 class Adder {
 public:
-// Takes the two data streams AND the select stream (scaling factor). more adder types to be expanded on
-    std::vector<int> add(const std::vector<int>& lhs, 
-                         const std::vector<int>& rhs, 
-                         const std::vector<int>& select) const;
+    bool add_scaled_or_weighted(bool lhs, bool rhs, bool select_bit) const; // stateless. select bit cant be assymmetric slect bit for weighted addition
 };
 
 }  // namespace StochasticSimulator

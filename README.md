@@ -8,7 +8,12 @@ GUnit/Gtests will be implimented, with a current plan to create structs that hol
 ## Setup
 vcpkg for gtest/gunit- will make setup instructions or make easier for someone to use later
 
-## File explanations
-bsg folder- Bit Stream Generator with lfsr and sotchastic number generator
-Modeules-
+## File explanations/ progress
+bsg folder- 
+    Bit Stream Generator with galois lfsr and sotchastic number generator
+
+Modeules folder- 
+    adder- scaled/weighted and gate streamed, counter not yet implemented
+    multiplier- and gate, streamed
 Tests-
+    no unit or flip/Etermination tests. 

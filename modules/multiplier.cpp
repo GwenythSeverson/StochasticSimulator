@@ -5,6 +5,8 @@
 
 namespace StochasticSimulator {
 
+    //be careful when calling, to make sure that each stream is pulled from 
+    // the same clock. (dont pull lhs(1) and rhs(2)) 
 class Multiplier {
 public:
     // A pure, stateless hardware simulation step
