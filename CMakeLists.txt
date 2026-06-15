@@ -22,6 +22,7 @@ add_executable(stochastic_computer
   modules/adder.cpp
   modules/multiplier.cpp
   modules/divider.cpp
+  tests/Unit\ Tests/test_adders.cpp
   tests/Unit\ Tests/test_multipliers.cpp
 )
 

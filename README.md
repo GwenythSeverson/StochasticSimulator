@@ -28,4 +28,11 @@ Modeules folder-
     adder- scaled/weighted and gate streamed, counter not yet implemented
     multiplier- and gate, streamed
 Tests-
-    no unit or flip/Etermination tests. 
+    Unit Tests- 
+        - test_adders- 
+            - currently tests truth table of mux signals
+            - TODO test weighted/scaled addition functionality with preset streams
+        - test_multipliers- 
+            - currently tests truth table of and gate multiplier
+            - TODO add preset stream test with loop demo
+    Functional Tests-

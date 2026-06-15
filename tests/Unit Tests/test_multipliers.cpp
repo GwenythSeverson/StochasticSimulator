@@ -7,10 +7,9 @@ using namespace StochasticSimulator;
 
 
 // TEST 1: Hardware Truth Table Logic
-// Checks if the stateless AND gate functions perfectly bit-by-bit.
 TEST(MultiplierTest, StrictAndGateLogic) {
     Multiplier mul;
-
+// Checks if the stateless AND gate functions perfectly bit-by-bit.
     // 0 x 0 = 0
     EXPECT_FALSE(mul.multiply(false, false));
     // 0 x 1 = 0
@@ -20,3 +19,5 @@ TEST(MultiplierTest, StrictAndGateLogic) {
     // 1 x 1 = 1
     EXPECT_TRUE(mul.multiply(true, true));
 }
+
+// TEST 2: 
