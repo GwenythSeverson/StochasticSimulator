@@ -1,15 +1,11 @@
 #include "lfsr.hpp"
 #include <stdexcept>
+#include <cstdlib>
+#include <ctime>
 
 namespace StochasticSimulator {
 
 FlexibleLFSR::FlexibleLFSR(StreamLength lengthMode, uint16_t seed) {
-    if (seed == 0) {
-        throw std::invalid_argument("Seed cannot be 0. :(");
-    }
-
-    initial_seed = seed;
-    state = seed;
     cycle_count = 0;
 
     switch (lengthMode) {
@@ -43,13 +39,30 @@ FlexibleLFSR::FlexibleLFSR(StreamLength lengthMode, uint16_t seed) {
             break;
     }
     
-    if (seed >= max_cycles) {
-        throw std::invalid_argument("Seed is out of bounds for the selected stream length.");
+    if (seed == 0) {
+        // Ensure standard rand is seeded using system time
+        static bool standardRandSeeded = false;
+        if (!standardRandSeeded) {
+            std::srand(static_cast<unsigned int>(std::time(nullptr)));
+            standardRandSeeded = true;
+        }
+
+        // Generate a hardware seed within bounds, ensuring it is never 0
+        uint16_t random_seed = (std::rand() % (max_cycles - 1)) + 1;
+        initial_seed = random_seed;
+        state = random_seed;
+    } else {
+        // Use the manual seed provided by the user
+        if (seed >= max_cycles) {
+            throw std::invalid_argument("Seed is out of bounds for the selected stream length.");
+        }
+        initial_seed = seed;
+        state = seed;
     }
 }
 
 uint16_t FlexibleLFSR::next() {
-    // Artificial 0 injection to cleanly complete the power-of-2 sequence length
+   // Artificial 0 injection to cleanly complete the power-of-2 sequence length
     if (cycle_count == (max_cycles - 1)) {
         cycle_count = 0;
         return 0;

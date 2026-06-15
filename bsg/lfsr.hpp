@@ -9,7 +9,12 @@
 
  #pragma once
 #include <cstdint>
-
+// LFSR MODE SELECTION:
+// 1. Auto-Random Mode (For multi-run accuracy tests / avoiding correlation bias):
+//    -> FlexibleLFSR stream(StreamLength::Length_256); // Omit seed to auto-randomize
+//
+// 2. Deterministic Mode (For debugging, fault injection, & early termination tests):
+//    -> FlexibleLFSR stream(StreamLength::Length_256, 42); // Pass explicit hardware seed
 namespace StochasticSimulator {
 
 enum class StreamLength {
@@ -23,19 +28,20 @@ enum class StreamLength {
 };
 
 class FlexibleLFSR {
+private:
+    uint16_t initial_seed;
+    uint16_t state;
+    uint16_t polynomial_mask;
+    uint16_t max_cycles;
+    uint32_t cycle_count;
+
 public:
-    explicit FlexibleLFSR(StreamLength lengthMode = StreamLength::Length_1024, uint16_t seed = 0x01);
+    // Setting default seed to 0 triggers automatic time-randomization
+    FlexibleLFSR(StreamLength lengthMode, uint16_t seed = 0);
 
     uint16_t next();
     uint16_t get_max_cycles() const;
     void reset();
-
-private:
-    uint16_t state;
-    uint16_t initial_seed;
-    uint16_t cycle_count;
-    uint16_t max_cycles;
-    uint16_t polynomial_mask;
 };
 
-}  // namespace StochasticSimulator
+} // namespace StochasticSimulator
