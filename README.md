@@ -6,7 +6,19 @@ Organization in modules is a C++ representation of the architecture of each kind
 GUnit/Gtests will be implimented, with a current plan to create structs that hold trial records, bit stream records, and maybe a function that records a snapshot at every step to put into a CSV to generate grpahs with in MATLAB. 
 
 ## Setup
-vcpkg for gtest/gunit- will make setup instructions or make easier for someone to use later
+ install CMake https://cmake.org/download/
+
+## Tests
+```powershell
+# 1. Configure the build environment
+cmake -B build -S .
+
+# 2. Compile the simulator and test targets
+cmake --build build
+
+# 3. Run the verification test suite
+.\build\Debug\stochastic_computer.exe
+
 
 ## File explanations/ progress
 bsg folder- 

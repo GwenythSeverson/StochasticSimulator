@@ -1,39 +1,40 @@
 cmake_minimum_required(VERSION 3.16)
 
-set(CMAKE_TOOLCHAIN_FILE
-    "${CMAKE_CURRENT_SOURCE_DIR}/../vcpkg/scripts/buildsystems/vcpkg.cmake"
-    CACHE STRING "")
-
 project(stochastic_computer LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# GUnit
-add_subdirectory(libs/GUnit)
+# 1. Automatically fetch and build Google Test from source
+include(FetchContent)
+FetchContent_Declare(
+  googletest
+  URL https://github.com/google/googletest/archive/refs/tags/v1.14.0.zip
+)
+set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
+FetchContent_MakeAvailable(googletest)
 
-# find GTest (installed via vcpkg)
-find_package(GTest CONFIG REQUIRED)
-
+# 2. Hardware simulator source files (NO main.cpp here!)
 add_executable(stochastic_computer
-  main.cpp
   general_functions.cpp
+  bsg/lfsr.cpp
+  bsg/sng.cpp
   modules/adder.cpp
   modules/multiplier.cpp
   modules/divider.cpp
-  tests/fault_tests.cpp
-  tests/early_termination_tests.cpp
+  tests/Unit\ Tests/test_multipliers.cpp
 )
 
+# 3. Map header file locations
 target_include_directories(stochastic_computer PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR}
-  ${CMAKE_CURRENT_SOURCE_DIR}/modules/include
-  ${CMAKE_CURRENT_SOURCE_DIR}/tests/include
-  ${CMAKE_CURRENT_SOURCE_DIR}/libs/GUnit/include
+  ${CMAKE_CURRENT_SOURCE_DIR}/bsg
+  ${CMAKE_CURRENT_SOURCE_DIR}/modules
+  ${gtest_SOURCE_DIR}/include
 )
 
+# 4. Link against both gtest and gtest_main (gtest_main provides the auto-main function!)
 target_link_libraries(stochastic_computer PRIVATE
-    GTest::gtest
-    GTest::gtest_main
-    gunit
+    gtest
+    gtest_main
 )

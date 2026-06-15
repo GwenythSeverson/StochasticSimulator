@@ -1,0 +1,10 @@
+# Ignore the CMake build directory completely
+build/
+
+# Ignore local editor/IDE settings
+.vscode/
+
+# Ignore leftover compiler artifacts
+*.exe
+*.obj
+*.pdb
