@@ -18,11 +18,15 @@ cmake --build build
 
 # 3. Run the verification test suite
 .\build\Debug\stochastic_computer.exe
-
+```
 
 ## File explanations/ progress
-bsg folder- 
-    Bit Stream Generator with galois lfsr and sotchastic number generator
+Bit Stream Generator (bsg) folder- 
+    Linear Feedback Shift Register (lfsr)-
+        - 2 mode galois lfsr. 
+            - mode 0: auto random for multi run accuracy tests and avoided correlation bais
+            - mode hardware seed: deterministic mode for debugging, fault injection, and early termination tests
+        - Stochastic Number Generator (sng)- 
 
 Modeules folder- 
     adder- scaled/weighted and gate streamed, counter not yet implemented
