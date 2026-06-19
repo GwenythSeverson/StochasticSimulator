@@ -31,6 +31,7 @@ Bit Stream Generator (bsg) folder-
 Modeules folder- 
     adder- scaled/weighted and gate streamed, counter not yet implemented
     multiplier- and gate, streamed
+
 Tests-
     Unit Tests- 
         - test_adders- 
@@ -40,3 +41,5 @@ Tests-
             - currently tests truth table of and gate multiplier
             - TODO add preset stream test with loop demo
     Functional Tests-
+        - test_multipler_accuracy- 
+            - creates cvv for matlab graphs and later analysis

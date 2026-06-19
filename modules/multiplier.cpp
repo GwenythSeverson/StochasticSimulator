@@ -10,3 +10,4 @@ namespace StochasticSimulator {
         return lhs && rhs;
     }
 }  // namespace StochasticSimulator
+
