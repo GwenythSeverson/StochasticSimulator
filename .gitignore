@@ -9,3 +9,4 @@ build/
 *.obj
 *.pdb
 *.csv
+*.png

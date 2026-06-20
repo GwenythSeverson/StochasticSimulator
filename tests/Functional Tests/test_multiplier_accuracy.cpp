@@ -20,7 +20,7 @@ TEST(MultiplierAccuracyTest, GenerateMatlabCorrelationMatrixData) {
     // =========================================================================
     double target_pa = 0.5000;            
     double target_pb = 0.5000;            
-    const int NUM_TRIALS = 10;            
+    const int NUM_TRIALS = 100;            
     
     StreamLength selected_length = StreamLength::Length_1024;
     uint16_t max_cycles = 1024; 
