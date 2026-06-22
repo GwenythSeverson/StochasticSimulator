@@ -14,7 +14,7 @@ clear; clc; close all;
 %% 1. CONFIGURATION
 %% ------------------------------------------------------------------
 csvFile         = "multiplier_accuracy_trials.csv";  
-trialsToAnalyze = 1:10;                    % Supports any array range (e.g., 1:1000)
+trialsToAnalyze = 1:100;                    % Supports any array range (e.g., 1:1000)
 truncLens       = [2, 4, 8, 16, 32, 64, 128, 256, 512, 1024];  % Kept sorted ascending, you can chnage. 
 
 % Ideal target probability used when the stream was generated
