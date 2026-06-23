@@ -43,3 +43,4 @@ Tests-
     Functional Tests-
         - test_multipler_accuracy- 
             - creates cvv for matlab graphs and later analysis
+        - fault_tests- evaluates how hardware faults affect elements by controlling variance before injecting radiation errors.

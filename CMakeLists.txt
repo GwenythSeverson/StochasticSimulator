@@ -25,6 +25,7 @@ add_executable(stochastic_computer
   tests/Unit\ Tests/test_adders.cpp
   tests/Unit\ Tests/test_multipliers.cpp
  "tests/Functional Tests/test_multiplier_accuracy.cpp"
+ "tests/Functional Tests/fault_tests.cpp"
 )
 
 # 3. Map header file locations
@@ -32,6 +33,7 @@ target_include_directories(stochastic_computer PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR}
   ${CMAKE_CURRENT_SOURCE_DIR}/bsg
   ${CMAKE_CURRENT_SOURCE_DIR}/modules
+  ${CMAKE_CURRENT_SOURCE_DIR}/tests
   ${gtest_SOURCE_DIR}/include
 )
 
