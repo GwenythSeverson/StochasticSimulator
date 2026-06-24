@@ -40,7 +40,9 @@ Tests-
         - test_multipliers- 
             - currently tests truth table of and gate multiplier
             - TODO add preset stream test with loop demo
+        - test dividers-
+            - checks bitwise behavior accuracy in saturation counting divider
     Functional Tests-
-        - test_multipler_accuracy- 
+        - test_multipler_accuracy- **includes correaltion error in results 
             - creates cvv for matlab graphs and later analysis
         - fault_tests- evaluates how hardware faults affect elements by controlling variance before injecting radiation errors.
