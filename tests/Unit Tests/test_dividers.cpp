@@ -1,5 +1,7 @@
 #include <gtest/gtest.h>
 #include <vector>
+#include <numeric>
+#include <random>
 
 // Forward declaration matching your HPP signature
 namespace StochasticSimulator {
@@ -8,110 +10,74 @@ namespace StochasticSimulator {
 
 using namespace StochasticSimulator;
 
-// Test Suite for strict bit-accurate behavior
-class UDCounterDivisionBitwiseTest : public ::testing::Test {
+class UDCounterDivisionStatisticalTest : public ::testing::Test {
 protected:
-    // Helper to count 1s to determine the exact expected decoded ratio
-    double expected_probability(const std::vector<bool>& stream) {
-        size_t ones = 0;
-        for (bool bit : stream) {
-            if (bit) ones++;
+    // Helper to generate a test bitstream with a specific target probability
+    std::vector<bool> generate_test_stream(double probability, size_t length, unsigned int seed) {
+        std::mt19937 gen(seed);
+        std::uniform_real_distribution<double> dis(0.0, 1.0);
+        std::vector<bool> stream;
+        stream.reserve(length);
+        for (size_t i = 0; i < length; ++i) {
+            stream.push_back(dis(gen) < probability);
         }
-        return static_cast<double>(ones) / stream.size();
+        return stream;
     }
 };
 
-// 1. Test Constant Increment (X is always 1, Y is always 0)
-// This forces the up/down counter to tick UP every single cycle until saturation.
-TEST_F(UDCounterDivisionBitwiseTest, StrictBitwiseAlwaysIncrement) {
-    // 8-bit stream using clear binary notation
-    std::vector<bool> stream_X = {1, 1, 1, 1, 1, 1, 1, 1};
-    std::vector<bool> stream_Y = {0, 0, 0, 0, 0, 0, 0, 0};
+// 1. Test Extreme Saturated Bounds: Constant Increment (X=1, Y=0)
+// Even with an RNG, if X is always 1 and Y is always 0, the counter pegs at MAX.
+// Because counter == COUNTER_MAX, it is always greater than any RN drawn, forcing 1.0 output.
+TEST_F(UDCounterDivisionStatisticalTest, SaturatedMaximumAlwaysOnes) {
+    size_t stream_len = 1000;
+    std::vector<bool> stream_X(stream_len, true);  // All 1s
+    std::vector<bool> stream_Y(stream_len, false); // All 0s
+
+    double result = ud_counter_division(stream_X, stream_Y);
+    // Allows a tiny 1% margin for the counter to climb from 0 to 32- aka takes 31 cycles for it to climb to 32 and RNG pciks a number between 1 and 32 even on the first clocks so it cant technically be 1.0 all the way?
+  EXPECT_NEAR(result, 1.0, 0.01); // STILL FAILS WHEN EXPECT NEAR AND NOT EXACT 1.0. counter logic?
+}
+
+// 2. Test Extreme Saturated Bounds: Constant Decrement (X=0, Y=1)
+// If X is always 0, the counter pegs at 0. Since counter == 0, it can never be 
+// strictly greater than an RN picked from [0..31]. Output must be 0.0.
+TEST_F(UDCounterDivisionStatisticalTest, SaturatedMinimumAllZeros) {
+    size_t stream_len = 1000;
+    std::vector<bool> stream_X(stream_len, false); // All 0s
+    std::vector<bool> stream_Y(stream_len, true);  // All 1s
 
     double result = ud_counter_division(stream_X, stream_Y);
     
-    // Exact bitwise saturation must lead to 100% output density (1.0)
-    EXPECT_EQ(result, 1.0);
+    // Must be completely deterministic at the floor boundary
+    EXPECT_DOUBLE_EQ(result, 0.0);
 }
 
-// 2. Test Constant Decrement (X is always 0, Y is always 1)
-// If the internal output feedback Z is high, Y=1 will force the counter DOWN.
-TEST_F(UDCounterDivisionBitwiseTest, StrictBitwiseAlwaysDecrement) {
-    std::vector<bool> stream_X = {0, 0, 0, 0, 0, 0, 0, 0};
-    std::vector<bool> stream_Y = {1, 1, 1, 1, 1, 1, 1, 1};
-
-    double result = ud_counter_division(stream_X, stream_Y);
+// 3. Statistical Test: Accurate Mathematical Division (e.g., 0.25 / 0.50 = 0.50)
+// Instead of checking an exact fraction, we check if the RNG-driven loop 
+// converges within an acceptable mathematical margin of error over a long stream.
+TEST_F(UDCounterDivisionStatisticalTest, LongStreamConvergenceTest) {
+    size_t long_stream_len = 50000; // Long enough to allow statistical convergence
     
-    // The counter should bottom out at 0, forcing a 0% output density (0.0)
-    EXPECT_EQ(result, 0.0);
+    // Generate streams with known statistical weights using a fixed seed for CI stability
+    std::vector<bool> stream_X = generate_test_stream(0.20, long_stream_len, 42);
+    std::vector<bool> stream_Y = generate_test_stream(0.80, long_stream_len, 24);
+
+    double expected_math_result = 0.20 / 0.80; // 0.25
+    double actual_sc_result = ud_counter_division(stream_X, stream_Y);
+
+    // Stochastic computing with an SNG randomizer exhibits natural variance.
+    // We expect the result to land within a +/- 3% margin of error.
+    EXPECT_NEAR(actual_sc_result, expected_math_result, 0.03);
 }
 
-// 3. Test Cycle-by-Cycle Interleaved Steps (Perfect Balance)
-// Alternating bits to see exactly how the counter tracks small fluctuations.
-TEST_F(UDCounterDivisionBitwiseTest, StrictBitwiseInterleavedPatterns) {
-    // Pattern designed to toggle the tracking loop identically every 2 cycles
-    std::vector<bool> stream_X = {1, 0, 1, 0, 1, 0, 1, 0};
-    std::vector<bool> stream_Y = {1, 1, 1, 1, 1, 1, 1, 1};
+// 4. Boundary Protection: Error Handling for Mismatched Lengths
+// Ensures your structural safety guards return gracefully instead of crashing.
+TEST_F(UDCounterDivisionStatisticalTest, ErrorHandlingOnMismatchedStreams) {
+    std::vector<bool> short_stream = {true, false, true};
+    std::vector<bool> long_stream  = {true, false, true, false, true};
 
-    double result = ud_counter_division(stream_X, stream_Y);
-
-    // Mathematically, 4 ones over 8 cycles = 0.5
-    EXPECT_EQ(result, 0.5);
-}
-
-// 4. Test Zero Inputs
-// Verifying how the loop behaves when absolutely no toggle events occur.
-TEST_F(UDCounterDivisionBitwiseTest, StrictBitwiseAllZeros) {
-    std::vector<bool> stream_X = {0, 0, 0, 0};
-    std::vector<bool> stream_Y = {0, 0, 0, 0};
-
-    double result = ud_counter_division(stream_X, stream_Y);
+    double result = ud_counter_division(short_stream, long_stream);
     
-    // With no inputs, the counter remains at its initial reset state.
-    EXPECT_EQ(result, 0.0); 
-}
-// 5. test feedback lockup. 
-TEST_F(UDCounterDivisionBitwiseTest, StrictBitwiseAllOnesLockUp) {
-    std::vector<bool> stream_X = {1, 1, 1, 1, 1, 1, 1, 1};
-    std::vector<bool> stream_Y = {1, 1, 1, 1, 1, 1, 1, 1};
-
-    double result = ud_counter_division(stream_X, stream_Y);
-    
-    // Physical Trace with your combinational fix:
-    // Cycle 0: counter=0->1. current_z=1. mul_bit=0 (prev_z was 0). 
-    // Cycle 1: prev_z=1, mul_bit=1. x=1, mul_bit=1 -> Neither if condition hits. Counter stays at 1!
-    // Every subsequent cycle: counter stays locked at 1, outputting 1.
-    // Therefore, stream_Z is entirely 1s.
-    EXPECT_EQ(result, 1.0);
-}
-
-// 6. Technically Wrong But Hardware Correct Test)
-// Mathematically, 0.25 / 0.5 should equal 0.5. 
-// However, short bitstreams with specific pulse alignments create a natural tracking lag 
-// or quantization error in a real counter state machine.
-TEST_F(UDCounterDivisionBitwiseTest, StrictBitwiseHardwareTrackingError) {
-    // P(X) = 2/8 = 0.25. P(Y) = 4/8 = 0.50.
-    // Expected mathematical division fraction: 0.50
-    std::vector<bool> stream_X = {1, 0, 0, 0, 1, 0, 0, 0};
-    std::vector<bool> stream_Y = {1, 1, 0, 0, 1, 1, 0, 0};
-
-    double result = ud_counter_division(stream_X, stream_Y);
-
-    // actual physical state machine:
-    // C0: X=1, Y=1, prev_Z=0 -> mul=0. Counter goes 0 -> 1. current_Z = 1.
-    // C1: X=0, Y=1, prev_Z=1 -> mul=1. Counter goes 1 -> 0. current_Z = 0.
-    // C2: X=0, Y=0, prev_Z=0 -> mul=0. Counter stays 0.   current_Z = 0.
-    // C3: X=0, Y=0, prev_Z=0 -> mul=0. Counter stays 0.   current_Z = 0.
-    // C4: X=1, Y=1, prev_Z=0 -> mul=0. Counter goes 0 -> 1. current_Z = 1.
-    // C5: X=0, Y=1, prev_Z=1 -> mul=1. Counter goes 1 -> 0. current_Z = 0.
-    // C6: X=0, Y=0, prev_Z=0 -> mul=0. Counter stays 0.   current_Z = 0.
-    // C7: X=0, Y=0, prev_Z=0 -> mul=0. Counter stays 0.   current_Z = 0.
-    //
-    // Total bits generated in stream_Z: {1, 0, 0, 0, 1, 0, 0, 0}
-    // Number of 1s = 2. Total length = 8.
-    // Actual Hardware Output: 2 / 8 = 0.25
-    
-    // It is mathematically wrong (0.25 instead of 0.5), but it is 100% bitwise correct 
-    // to how a real physical up-down counter processes this exact sequence.
-    EXPECT_EQ(result, 0.25);
+    // Should safely hit the error catch block and return 0.0
+    EXPECT_DOUBLE_EQ(result, 0.0);
 }

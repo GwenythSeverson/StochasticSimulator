@@ -59,7 +59,7 @@ double ud_counter_division(const std::vector<bool>& stream_X, const std::vector<
 
         // Comparator logic: If the integrated count is greater than the random threshold,
         // we output a 1. This spreads the 1s out randomly instead of clumping.
-        bool current_z_bit = (counter > rn);
+        bool current_z_bit = (counter >= rn);
         stream_Z.push_back(current_z_bit);
 
         // Save for the next cycle's feedback loop
