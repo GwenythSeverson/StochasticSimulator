@@ -7,7 +7,8 @@
 #include "general_functions.hpp"
 
 
-
+// https://jsm.ece.wisc.edu/docs/wu-ieeedt2021.pdf divider from figure 2a
+// "Gaines division (GDIV) [1] for unipolar and bipolar SC is shown in Figure 2a and b."
 namespace StochasticSimulator {
 
     /*
@@ -44,7 +45,8 @@ double ud_counter_division(const std::vector<bool>& stream_X, const std::vector<
         }
 
         // 2. Combinational Output: Determine current bit based on the updated state
-        bool current_z_bit = (counter > 0);
+        bool current_z_bit = (counter > 0);  // no use of Random Number with generator, works in simulaton for counter but 
+        // could be improved with a stochastic bit generator for more realistic behavior. see diagram in link at top of file. 
         stream_Z.push_back(current_z_bit);
 
         // Save for the next cycle's feedback loop
