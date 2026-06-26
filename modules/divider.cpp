@@ -23,9 +23,14 @@ double ud_counter_division(const std::vector<bool>& stream_X, const std::vector<
 
     size_t max_cycles = stream_X.size();
     
-    // Using a 0-indexed counter to match hardware SNG behavior cleanly
-    int counter = 0; 
+
+// extra note here to know this is where you would probably input new code for any pre loading like this 
+// counter max/2 section that causes the warm up tim eot be cut in half in this situation so the proability starts around 1/2 
+// and can get its proabbility close and closer to the actual needed values faster at the start. but for now 
+// its set to counter starts at zero with a larger warmup time for higher proability values. but it allows for an asnwer to be always found and not stuck at zero for a long time.
+// zeros in the end. 
     const int COUNTER_MAX = 32; 
+    int counter = 0;
     
     std::vector<bool> stream_Z;
     stream_Z.reserve(max_cycles);
@@ -59,7 +64,7 @@ double ud_counter_division(const std::vector<bool>& stream_X, const std::vector<
 
         // Comparator logic: If the integrated count is greater than the random threshold,
         // we output a 1. This spreads the 1s out randomly instead of clumping.
-        bool current_z_bit = (counter >= rn);
+        bool current_z_bit = (counter > rn);
         stream_Z.push_back(current_z_bit);
 
         // Save for the next cycle's feedback loop
