@@ -14,10 +14,10 @@ GUnit/Gtests will be implimented, with a current plan to create structs that hol
 cmake -B build -S .
 
 # 2. Compile the simulator and test targets
-cmake --build build
+cmake --build build --config Release
 
 # 3. Run the verification test suite
-.\build\Debug\stochastic_computer.exe
+.\build\Release\stochastic_computer.exe
 ```
 
 ## File explanations/ progress

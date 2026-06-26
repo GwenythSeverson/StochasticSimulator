@@ -27,7 +27,8 @@ add_executable(stochastic_computer
   "tests/Unit\ Tests/test_dividers.cpp"
  "tests/Functional Tests/test_multiplier_accuracy.cpp"
  "tests/Functional Tests/gen_fault_tests.cpp"
-)
+ "tests/Functional Tests/test_dividers_accuracy.cpp"
+ )
 
 # 3. Map header file locations
 target_include_directories(stochastic_computer PRIVATE

@@ -91,7 +91,7 @@ TEST(MultiplierAccuracyTest, GenerateMatlabCorrelationMatrixData) {
     // =========================================================================
     // 4. CONSOLE DISPLAY REPORT (Preserved for human review)
     // =========================================================================
-    std::cout << "\n============= SIMULATION EXPERIMENT SUMMARY =============" << std::endl;
+  /*  std::cout << "\n============= SIMULATION EXPERIMENT SUMMARY =============" << std::endl;
     std::cout << "Trial |   Count A   |   Count B   | Count Out | Vector A (First 20b) | Vector B (First 20b)" << std::endl;
     std::cout << "-----------------------------------------------------------------------------------" << std::endl;
 
@@ -113,6 +113,6 @@ TEST(MultiplierAccuracyTest, GenerateMatlabCorrelationMatrixData) {
 
     std::cout << "===================================================================================" << std::endl;
     std::cout << "[SUCCESS] Exported single-row accuracy traces to: " << filename << std::endl;
-}
+*/}
 
 } // namespace StochasticSimulator

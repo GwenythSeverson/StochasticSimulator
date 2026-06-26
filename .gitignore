@@ -9,4 +9,10 @@ build/
 *.obj
 *.pdb
 *.csv
-*.png
+*png
+
+# Include these files as good data runs
+!keepdata/
+!.25_.5CNTat0_graphs_and_files/*.png
+!.25_.5CNTat0_graphs_and_files/*.csv
+
