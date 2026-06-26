@@ -13,7 +13,27 @@ clear; clc; close all;
 %% ------------------------------------------------------------------
 %% 1. CONFIGURATION
 %% ------------------------------------------------------------------
-csvFile         = "multiplier_accuracy_trials.csv";  
+% 1. Start inside: 'StochasticSimulator/tests/Functional Tests/'
+scriptDir = fileparts(mfilename('fullpath'));
+
+% 2. Step up out of 'Functional Tests' into 'tests/'
+testsDir = fullfile(scriptDir, '..');
+
+% 3. Step up out of 'tests' into the repository root ('StochasticSimulator/')
+rawRepoRoot = fullfile(testsDir, '..');
+
+% 4. FORCE Windows/OneDrive to resolve '..' links into a true absolute path
+[status, info] = fileattrib(rawRepoRoot);
+if ~status
+    error("Could not resolve repository root directory structure.");
+end
+repoRoot = info.Name; % Clean absolute path to StochasticSimulator/
+
+% 5. Step down into the target data directories
+dataRootDir = fullfile(repoRoot, 'keepdata', 'Multiplier Data');
+
+% 6. Combine the path and filename cleanly for the data parser
+csvFile     = fullfile(dataRootDir, "multiplier_accuracy_trials.csv");
 trialsToAnalyze = 1:100;                    % Supports any array range (e.g., 1:1000)
 truncLens       = [2, 4, 8, 16, 32, 64, 128, 256, 512, 1024];  % Kept sorted ascending, you can chnage. 
 

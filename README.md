@@ -28,6 +28,15 @@ Bit Stream Generator (bsg) folder-
             - mode hardware seed: deterministic mode for debugging, fault injection, and early termination tests
         - Stochastic Number Generator (sng)- 
 
+keepdata-
+    Divider Data-
+        Alternative_divider_data-
+        CNT_starting_point_data-
+            did 2 trial runs of .25/.5 wiht teh counter initialized at different spots (0 & 16)
+            and decided that the warmup wasnt incredibly effected
+    Multiplier Data-
+        just basic mult behavior graphs and the csv it was pulled from
+
 Modeules folder- 
     adder- scaled/weighted and gate streamed, counter not yet implemented
     multiplier- and gate, streamed

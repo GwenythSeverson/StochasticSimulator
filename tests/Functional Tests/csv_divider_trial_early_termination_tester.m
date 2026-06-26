@@ -27,7 +27,7 @@ end
 repoRoot = info.Name; % This is now a clean path with NO '..' or relative links
 
 % 5. Step down into the target data directories
-dataRootDir = fullfile(repoRoot, 'keepdata', 'CNT_starting_point_data');
+dataRootDir = fullfile(repoRoot, 'keepdata','Divider data', 'CNT_starting_point_data');
 
 csvFile  = fullfile(dataRootDir, '.25_.5_CNTat0_graphs_and_files', 'divider_accuracy_trials1.csv'); 
 truncLens       = [2, 4, 8, 16, 32, 64, 128, 256, 512, 1024];  
