@@ -10,7 +10,26 @@ clear; clc; close all;
 %% ------------------------------------------------------------------
 %% 1. CONFIGURATION
 %% ------------------------------------------------------------------
-csvFile         = "divider_accuracy_trials.csv";  
+% 1. Start inside: 'StochasticSimulator/tests/Functional Tests/'
+scriptDir = fileparts(mfilename('fullpath'));
+
+% 2. Step up out of 'Functional Tests' into 'tests/'
+testsDir = fullfile(scriptDir, '..');
+
+% 3. Step up out of 'tests' into the repository root ('StochasticSimulator/')
+rawRepoRoot = fullfile(testsDir, '..');
+
+% 4. FORCE Windows/OneDrive to resolve '..' links into a true absolute path
+[status, info] = fileattrib(rawRepoRoot);
+if ~status
+    error("Could not resolve repository root directory structure.");
+end
+repoRoot = info.Name; % This is now a clean path with NO '..' or relative links
+
+% 5. Step down into the target data directories
+dataRootDir = fullfile(repoRoot, 'keepdata', 'CNT_starting_point_data');
+
+csvFile  = fullfile(dataRootDir, '.25_.5_CNTat0_graphs_and_files', 'divider_accuracy_trials1.csv'); 
 truncLens       = [2, 4, 8, 16, 32, 64, 128, 256, 512, 1024];  
 numSubplotPlots = 50;  % Number of random individual subplots to generate
 
