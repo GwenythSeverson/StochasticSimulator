@@ -29,6 +29,7 @@ add_executable(stochastic_computer
  "tests/Functional Tests/gen_fault_tests.cpp"
  "tests/Functional Tests/test_dividers_accuracy.cpp"
  "tests/Fault Injection/multiplier_injections.cpp"
+ "tests/Fault Injection/test_multiplier_fault2.cpp"
  )
 
 # 3. Map header file locations
