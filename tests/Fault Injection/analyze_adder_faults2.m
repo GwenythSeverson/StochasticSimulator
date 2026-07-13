@@ -45,7 +45,7 @@ fprintf('Done!\n');
 %% 3. Setup Figure Layout (3x3 Grid)
 figure('Name', 'Stochastic Adder Exhaustive Fault Analysis Suite', ...
        'Units', 'Normalized', 'Position', [0.05, 0.05, 0.9, 0.9]);
-t = tiledlayout(3, 3, 'TileSpacing', 'Compact', 'Padding', 'Compact');
+t = tiledlayout(3,4,'TileSpacing','Compact','Padding','Compact');
 title(t, '32-Bit Exhaustive Stochastic Adder (MUX) Hardware Constraint Suite', ...
     'FontSize', 14, 'FontWeight', 'Bold');
 
@@ -107,45 +107,145 @@ grid on; xlim([0 31]);
 xlabel('Expected Clean Output Ones Count'); ylabel('Mean Raw Total Error');
 title('5. Resulting Bitstream Fault Sign Bias');
 
-%% Graph 6: Input Stream A Trial Distribution
+%% Graph 6: Input Stream A & B Trial Distributions (Grouped)
 nexttile;
 [cA_Counts, cA_Values] = groupcounts(data.CountA);
-bar(cA_Values, cA_Counts, 'FaceColor', [0.8 0.4 0.4]);
+[cB_Counts, cB_Values] = groupcounts(data.CountB);
+
+% Render side-by-side grouped bars for both inputs
+bar(cA_Values, [cA_Counts, cB_Counts], 'grouped');
 grid on; xlim([-1 32]);
-xlabel('Count A (Input Ones Count)'); ylabel('Number of Trials');
-title('6. Input Stream A Trial Distribution');
+xlabel('Input Ones Count'); ylabel('Number of Trials');
+legend('Stream A (Count A)', 'Stream B (Count B)', 'Location', 'SouthOutside', 'Orientation', 'Horizontal');
+title('6. Input Stream A & B Trial Distributions');
 
-%% Graph 7: REPLACED - Hardware Precision Error Trend Suite (Fail-Safe Mapping)
-nexttile([1, 3]);
 
-% Define the specific target values of CountB we want to inspect
-target_B = [0, 8, 16, 24, 31];
-colors = ['r', 'g', 'b', 'm', 'k'];
-labels = {'Count B = 0', 'Count B = 8', 'Count B = 16', 'Count B = 24', 'Count B = 31'};
+
+%% Graph 7: Trial-Level Error Scatter
+nexttile;
+
+scatter(data.BitsFlipped, ...
+        abs(data.TotalError), ...
+        3, ...                 % Marker size
+        '.', ...
+        'MarkerEdgeAlpha',0.10);
+
+grid on;
+box on;
+
+xlabel('Number of Bits Flipped');
+ylabel('|Total Error|');
+
+title('8. Trial-Level Error Scatter');
+
+xlim([0 33]);
+
+
+
+
+%% Graph 11: Improved Global Error Distribution
+
+nexttile;
+
+% Use more bins to show distribution shape
+histogram(data.TotalError,...
+          150,...
+          'Normalization','pdf',...
+          'EdgeColor','k');
 
 hold on;
-for i = 1:length(target_B)
-    % 1. Extract ONLY the rows matching the current Count B target
-    subTable = data(data.CountB == target_B(i), :);
-    
-    % 2. Group this clean slice by CountA to compress the 100 organizations
-    [G_sub, unique_cA] = findgroups(subTable.CountA);
-    mean_abs_prec = splitapply(@mean, abs(subTable.PrecisionError), G_sub);
-    
-    % 3. Plot the true, unscrambled trend line
-    plot(unique_cA, mean_abs_prec, 'Color', colors(i), 'LineWidth', 2, ...
-         'Marker', 'o', 'MarkerSize', 4, 'MarkerFaceColor', colors(i));
-end
-hold off;
 
-% Format the trend graph
-grid on; xlim([0 31]); ylim([0 1.2]);
-xlabel('Count A (Input Ones Count)');
-ylabel('Mean Absolute Quantization Error');
-legend(labels, 'Location', 'NorthWest');
-title('7. Hardware Quantization Error Trend Profiles (Parabolic Variance Limits)');
-%% 4. Export Figure to PNG
-fig = gcf; 
+xline(0,...
+      'r--',...
+      'LineWidth',1.5);
+
+grid on;
+box on;
+
+xlabel('Total Error');
+ylabel('Probability Density');
+
+title('11. Global Signed Error Distribution');
+
+
+%% Graph 12: Fault Severity Error Distributions
+
+nexttile;
+
+selected_flips = [2 8 16 32];
+
+hold on;
+
+for k = 1:length(selected_flips)
+
+    temp = data(data.BitsFlipped == selected_flips(k),:);
+
+    histogram(temp.TotalError,...
+              80,...
+              'Normalization','pdf',...
+              'DisplayStyle','stairs',...
+              'LineWidth',1.5);
+
+end
+
+xline(0,...
+      'r--',...
+      'LineWidth',1);
+
+grid on;
+box on;
+
+xlabel('Total Error');
+ylabel('Probability Density');
+
+legend('2 Bits','8 Bits','16 Bits','32 Bits');
+
+title('Error Distribution by Fault Intensity');
+
+%% Graph: Error Contribution Per Flipped Bit
+% Tests whether each injected fault contributes equal error
+
+nexttile;
+
+% Group data by number of flipped bits
+[G_fault, flipCount] = findgroups(data.BitsFlipped);
+
+% Mean absolute error at each fault level
+meanAbsError = splitapply(@mean, abs(data.TotalError), G_fault);
+
+% Normalize by number of faults
+errorPerBit = meanAbsError ./ flipCount;
+
+% Avoid zero fault division
+errorPerBit(flipCount == 0) = NaN;
+
+
+plot(flipCount,...
+     errorPerBit,...
+     'b-o',...
+     'LineWidth',2,...
+     'MarkerSize',5,...
+     'MarkerFaceColor','b');
+
+
+grid on;
+box on;
+
+xlabel('Number of Bits Flipped');
+ylabel('Mean |Error| / Flipped Bit');
+
+title('Per-Fault Error Contribution');
+
+xlim([0 33]);
+%% Export Figure
+
+fig = gcf;
+
 fprintf('Exporting layout... ');
-exportgraphics(fig, 'Stochastic_Adder_Exhaustive_Fault_Analysis.png', 'Resolution', 300, 'BackgroundColor', 'current');
+
+exportgraphics(fig,...
+    'Stochastic_Adder_Exhaustive_Fault_Analysis.png',...
+    'Resolution',300,...
+    'BackgroundColor','current');
+
 fprintf('Done! Saved as PNG.\n');

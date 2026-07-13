@@ -72,7 +72,7 @@ namespace {
 // Definition of constants for the 32-bit simulator sweep.
 constexpr size_t STREAM_LEN = 32;             // Length of the stochastic bitstreams
 constexpr size_t S_ONES = STREAM_LEN / 2;     // Select stream density = 50% = 16 ones
-constexpr size_t ORGANIZATIONS_PER_PAIR = 5;  // Unique bit permutations per input pair
+constexpr size_t ORGANIZATIONS_PER_PAIR = 100;  // Unique bit permutations per input pair
 
 /*
  * build_mux_zce_triple()
