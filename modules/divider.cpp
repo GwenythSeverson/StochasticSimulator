@@ -36,13 +36,11 @@ double ud_counter_division(const std::vector<bool>& stream_X, const std::vector<
     std::vector<bool> stream_Z;
     stream_Z.reserve(max_cycles);
 
- // Seed the SNG RNG from the caller-supplied seed so results are reproducible.
-    // Previously used std::random_device (non-deterministic), which contaminated
-    // BitFlipError measurements with the divider's own internal SNG randomness.
-    std::mt19937 gen(sng_seed);
-    // Generates a uniform random threshold integer between 0 and COUNTER_MAX - 1
-    std::uniform_int_distribution<int> r_num_gen(0, COUNTER_MAX - 1);
-
+  // We use a 16-bit LFSR (Length_65536) to ensure the random sequence does not loop for 
+    // at least 65,536 cycles, which is critical for long 1024+ bit streams.
+    // We ensure the seed is non-zero (LFSRs hate 0).
+    uint16_t safe_seed = (sng_seed % 65535) + 1; 
+    FlexibleLFSR lfsr(StreamLength::Length_65536, safe_seed);
     // Track z_bit from the *previous* cycle for the feedback loop
     bool prev_z_bit = false; 
 
@@ -60,9 +58,9 @@ double ud_counter_division(const std::vector<bool>& stream_X, const std::vector<
             if (counter > 0) counter--;
         }
 
-        // 2. Stochastic Number Generator (SNG) Block Replacement
-        // Generate a fresh random number (RN) for this clock cycle
-        int rn = r_num_gen(gen);
+            // Hardware LFSR draw. We need a 5-bit value (0-31) for the COUNTER_MAX=32 comparator.
+        // We take the lower 5 bits of the 16-bit LFSR output (equivalent to tapping 5 wires).
+        int rn = lfsr.next() % 32;
 
         // Comparator logic: If the integrated count is greater than the random threshold,
         // we output a 1. This spreads the 1s out randomly instead of clumping.
