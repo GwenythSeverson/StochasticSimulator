@@ -15,7 +15,8 @@ namespace StochasticSimulator {
     /*
     * up down counter division
     */
-double ud_counter_division(const std::vector<bool>& stream_X, const std::vector<bool>& stream_Y) {
+double ud_counter_division(const std::vector<bool>& stream_X, const std::vector<bool>& stream_Y, uint32_t sng_seed) {
+
     if (stream_X.empty() || stream_X.size() != stream_Y.size()) {
         std::cerr << "Error: Input streams must be non-empty and of identical length.\n";
         return 0.0;
@@ -35,9 +36,10 @@ double ud_counter_division(const std::vector<bool>& stream_X, const std::vector<
     std::vector<bool> stream_Z;
     stream_Z.reserve(max_cycles);
 
-    // Setup random number generation to act as the hardware RN block (e.g., an LFSR)
-    std::random_device rd;
-    std::mt19937 gen(rd());
+ // Seed the SNG RNG from the caller-supplied seed so results are reproducible.
+    // Previously used std::random_device (non-deterministic), which contaminated
+    // BitFlipError measurements with the divider's own internal SNG randomness.
+    std::mt19937 gen(sng_seed);
     // Generates a uniform random threshold integer between 0 and COUNTER_MAX - 1
     std::uniform_int_distribution<int> r_num_gen(0, COUNTER_MAX - 1);
 
