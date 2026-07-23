@@ -42,7 +42,7 @@ matFile = 'Stochastic_Adder_Exhaustive_Data.mat';
 fprintf('Saving workspace variables to %s... ', matFile);
 save(matFile, 'data');
 fprintf('Done!\n');
-%% 3. Setup Figure Layout (3x3 Grid)
+%% 3. Setup Figure Layout (chnaging grid as needed  Grid)
 figure('Name', 'Stochastic Adder Exhaustive Fault Analysis Suite', ...
        'Units', 'Normalized', 'Position', [0.05, 0.05, 0.9, 0.9]);
 t = tiledlayout(3,4,'TileSpacing','Compact','Padding','Compact');
@@ -168,39 +168,43 @@ ylabel('Probability Density');
 title('11. Global Signed Error Distribution');
 
 
-%% Graph 12: Fault Severity Error Distributions
-
+%% Graph 12: Fault Severity Error Distributions (True Discrete PMF)
 nexttile;
 
-selected_flips = [2 8 16 32];
-
+selected_flips = [2, 8, 16, 32];
+colors = {'#0072BD', '#D95319', '#EDB120', '#7E2F8E'}; % Distinct, high-contrast colors
 hold on;
 
 for k = 1:length(selected_flips)
-
-    temp = data(data.BitsFlipped == selected_flips(k),:);
-
-    histogram(temp.TotalError,...
-              80,...
-              'Normalization','pdf',...
-              'DisplayStyle','stairs',...
-              'LineWidth',1.5);
-
+    % 1. Extract the data subset
+    temp = data(data.BitsFlipped == selected_flips(k), :);
+    
+    % 2. Calculate unique error values and their exact probabilities
+    % This avoids artificial binning stairs entirely!
+    [unique_errors, ~, idx] = unique(temp.TotalError);
+    probabilities = accumarray(idx, 1) / numel(temp.TotalError);
+    
+    % 3. Plot the envelope (showing the clean, underlying bell curves)
+    plot(unique_errors, probabilities, '-', 'Color', colors{k}, 'LineWidth', 2);
+    
+    % 4. Add discrete markers to represent the true discrete state steps of SC
+    plot(unique_errors, probabilities, '.', 'Color', colors{k}, 'MarkerSize', 8);
 end
 
-xline(0,...
-      'r--',...
-      'LineWidth',1);
+% Draw the zero-error axis reference line
+xline(0, 'r--', 'LineWidth', 1.2);
 
 grid on;
 box on;
-
-xlabel('Total Error');
-ylabel('Probability Density');
-
-legend('2 Bits','8 Bits','16 Bits','32 Bits');
-
-title('Error Distribution by Fault Intensity');
+xlabel('Total Error (Ones Count Deviation)');
+ylabel('True State Probability');
+legend('2 Bits Envelope', '2 Bits States', ...
+       '8 Bits Envelope', '8 Bits States', ...
+       '16 Bits Envelope', '16 Bits States', ...
+       '32 Bits Envelope', '32 Bits States', ...
+       'Location', 'NorthEast');
+title('True Discrete Error Distribution by Fault Intensity');
+xlim([-16 16]); % Focus on the active physical bounds
 
 %% Graph: Error Contribution Per Flipped Bit
 % Tests whether each injected fault contributes equal error
@@ -237,6 +241,89 @@ ylabel('Mean |Error| / Flipped Bit');
 title('Per-Fault Error Contribution');
 
 xlim([0 33]);
+%% Isolation Graph: Degradation and Jaggedness at High Fault Densities (24-32 Flips)
+% Run this snippet in your workspace containing your loaded 'data' table.
+
+figure('Name', 'High-Fault Jaggedness Isolation (24 to 32 Flips)', ...
+       'Units', 'Normalized', 'Position', [0.1, 0.1, 0.8, 0.7]);
+
+% 1. Filter data for the high-fault regime (even steps from 24 to 32)
+target_flips = [24, 26, 28, 30, 32];
+colors = {[0.4660, 0.6740, 0.1880], ... % Light Green (24)
+          [0.3010, 0.7450, 0.9330], ... % Cyan-Blue (26)
+          [0.8500, 0.3250, 0.0980], ... % Orange-Red (28)
+          [0.4940, 0.1840, 0.5560], ... % Purple (30)
+          [0.6350, 0.0780, 0.1840]};    % Dark Red (32)
+
+% 2. Create a 1x2 visualization layout
+t_iso = tiledlayout(1, 2, 'TileSpacing', 'Compact', 'Padding', 'Compact');
+title(t_iso, 'Systemic Coherence & Comb-Filtering in High-Fault SC MUX Adders', ...
+    'FontSize', 14, 'FontWeight', 'Bold');
+
+%% Left Panel: Waterfall PMF Curves (Showing the transition from smooth to jagged)
+ax1 = nexttile(t_iso);
+hold on;
+
+for k = 1:length(target_flips)
+    % Extract the specific fault intensity subset
+    temp = data(data.BitsFlipped == target_flips(k), :);
+    
+    % Compute exact discrete probabilities (PMF)
+    [unique_errors, ~, idx] = unique(temp.TotalError);
+    probabilities = accumarray(idx, 1) / numel(temp.TotalError);
+    
+    % Offset each line vertically slightly to create a clean pseudo-3D waterfall view
+    y_offset = (k-1) * 0.015; 
+    
+    % Plot the continuous envelope
+    plot(unique_errors, probabilities + y_offset, '-', ...
+         'Color', colors{k}, 'LineWidth', 2);
+     
+    % Plot the discrete state markers
+    plot(unique_errors, probabilities + y_offset, '.', ...
+         'Color', colors{k}, 'MarkerSize', 6);
+end
+
+xline(0, 'k--', 'LineWidth', 1.2, 'Alpha', 0.5);
+grid on; box on;
+xlabel('Total Error (Ones Count Deviation)');
+ylabel('Probability + Vertical Offset');
+title('A. Evolution of State Probabilities (24 \rightarrow 32 Flips)');
+
+% Add custom labels to the offset curves
+legend_labels = cellfun(@(x) sprintf('%d Flips', x), num2cell(target_flips), 'UniformOutput', false);
+legend(legend_labels, 'Location', 'NorthWest', 'Box', 'off');
+xlim([-16 16]);
+
+%% Right Panel: The "Entropy Collapse" Metric (Quantifying the Jaggedness)
+% As the curves get more jagged, the variance of adjacent states increases.
+% We calculate the mean absolute difference between neighboring probability states.
+ax2 = nexttile(t_iso);
+
+jaggedness_metric = zeros(length(target_flips), 1);
+
+for k = 1:length(target_flips)
+    temp = data(data.BitsFlipped == target_flips(k), :);
+    [unique_errors, ~, idx] = unique(temp.TotalError);
+    probabilities = accumarray(idx, 1) / numel(temp.TotalError);
+    
+    % Calculate the "roughness" (first derivative of the PMF)
+    % Higher values mean huge spikes and steep drops (jagged), lower means smooth transitions.
+    jaggedness_metric(k) = mean(abs(diff(probabilities)));
+end
+
+bar(target_flips, jaggedness_metric, 0.5, 'FaceColor', [0.15 0.15 0.15], 'EdgeColor', 'k');
+hold on;
+plot(target_flips, jaggedness_metric, 'r-o', 'LineWidth', 1.5, 'MarkerFaceColor', 'r');
+
+grid on; box on;
+xlabel('Number of Bits Flipped');
+ylabel('PMF Roughness Index (Mean |\Delta P|)');
+title('B. Quantification of Structural Comb Filtering');
+xticks(target_flips);
+
+% Link axes for easy zooming
+linkaxes([ax1, ax2], 'y');
 %% Export Figure
 
 fig = gcf;

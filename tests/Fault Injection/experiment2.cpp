@@ -45,7 +45,7 @@ std::vector<bool> generate_canonical_stream(size_t active_bits) {
     return stream;
 }
 
-} // namespace
+} // namespace stochasticSimulator
 
 TEST(StochasticDividerExhaustiveTest, Sweep32BitExhaustiveDividerFault) {
     const std::string filename = "divider_exhaustive_data.csv";
