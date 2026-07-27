@@ -9,7 +9,7 @@
 #include <set>
 #include <utility>
 
-#include "../../modules/multiplier.hpp"
+#include "../../../modules/multiplier.hpp"
 
 /*
  * 32-bit exhaustive-fraction zero-correlation-error (ZCE) fault injection sweep
@@ -196,7 +196,7 @@ TEST_F(MultiplierInjectionTest, Sweep32BitZeroCorrelationFaultInjection) {
 #include <utility>
 #include <iostream>
 
-#include "../../modules/multiplier.hpp"
+#include "../../../modules/multiplier.hpp"
 
 /*
  * 32-bit exhaustive-fraction near zero-correlation-error (ZCE) fault injection sweep

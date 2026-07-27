@@ -10,7 +10,7 @@
 #include <random>
 
 // Include overall project utility definitions
-#include "../../general_functions.hpp"
+#include "../../../general_functions.hpp"
 
 namespace StochasticSimulator {
 

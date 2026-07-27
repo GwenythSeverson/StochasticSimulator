@@ -52,7 +52,7 @@
 #include <utility>
 #include <iostream>
 
-#include "../../modules/multiplier.hpp"
+#include "../../../modules/multiplier.hpp"
 
 using namespace StochasticSimulator;
 

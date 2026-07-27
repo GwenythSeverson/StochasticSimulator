@@ -64,7 +64,7 @@
 #include <cmath>
 #include <iostream>
 
-#include "../../modules/divider.hpp"
+#include "../../../modules/divider.hpp"
 
 using namespace StochasticSimulator;
 

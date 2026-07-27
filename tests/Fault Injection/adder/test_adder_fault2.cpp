@@ -19,7 +19,7 @@
 #include <set>
 #include <iomanip> // For nice progress formatting
 
-#include "../../modules/adder.hpp"
+#include "../../../modules/adder.hpp"
 
 using namespace StochasticSimulator;
 

@@ -9,8 +9,8 @@
 #include <algorithm>
 
 // Include overall project utility definitions
-#include "../../general_functions.hpp"
-#include "../../modules/multiplier.hpp"
+#include "../../../general_functions.hpp"
+#include "../../../modules/multiplier.hpp"
 
 namespace StochasticSimulator {
 
