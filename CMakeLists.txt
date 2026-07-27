@@ -19,23 +19,24 @@ add_executable(stochastic_computer
   general_functions.cpp
   bsg/lfsr.cpp
   bsg/sng.cpp
+  bsg/sobol.cpp
   modules/adder.cpp
   modules/multiplier.cpp
   modules/divider.cpp
   tests/Unit\ Tests/test_adders.cpp
   tests/Unit\ Tests/test_multipliers.cpp
   "tests/Unit\ Tests/test_dividers.cpp"
- "tests/Functional Tests/test_multiplier_accuracy.cpp"
+ "tests/Functional Tests/multiplier/test_multiplier_accuracy.cpp"
  "tests/Functional Tests/gen_fault_tests.cpp"
- 
- #"tests/Fault Injection/multiplier_injections.cpp"
-# "tests/Fault Injection/test_multiplier_fault2.cpp"
- #"tests/Fault Injection/test_adder_fault2.cpp"
- "tests/Fault Injection/test_divider_fault2.cpp"
+
+ #"tests/Fault Injection/multiplier/multiplier_injections.cpp"
+# "tests/Fault Injection/multiplier/test_multiplier_fault2.cpp"
+ #"tests/Fault Injection/adder/test_adder_fault2.cpp"
+ "tests/Fault Injection/divider/test_divider_fault2.cpp"
  #"tests/Fault Injection/experiment2.cpp"
  )
 # cut out ones for speed
-# "tests/Functional Tests/test_dividers_accuracy.cpp"
+# "tests/Functional Tests/divider/test_dividers_accuracy.cpp"
 
 
 # 3. Map header file locations
