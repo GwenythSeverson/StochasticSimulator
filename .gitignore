@@ -10,7 +10,7 @@ build/
 *.pdb
 *.csv
 *png
-
+*.mat
 # Include these files as good data runs
 !keepdata/
 !keepdata/**
