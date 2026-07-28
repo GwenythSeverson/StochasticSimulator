@@ -78,7 +78,7 @@ uint16_t FlexibleLFSR::next() {
     return state;
 }
 
-uint16_t FlexibleLFSR::get_max_cycles() const {
+uint32_t FlexibleLFSR::get_max_cycles() const {
     return max_cycles;
 }
 
