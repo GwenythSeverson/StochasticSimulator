@@ -32,10 +32,7 @@ private:
     uint16_t initial_seed;
     uint16_t state;
     uint16_t polynomial_mask;
-    // MUST be 32-bit: Length_65536 sets this to 65536, which does not fit in a uint16_t and
-    // silently truncated to 0. That made every seed fail the bounds check below, so every
-    // Length_65536 construction with an explicit seed threw.
-    uint32_t max_cycles;
+    uint16_t max_cycles;
     uint32_t cycle_count;
 
 public:
@@ -43,7 +40,7 @@ public:
     FlexibleLFSR(StreamLength lengthMode, uint16_t seed = 0);
 
     uint16_t next();
-    uint32_t get_max_cycles() const;
+    uint16_t get_max_cycles() const;
     void reset();
 };
 
