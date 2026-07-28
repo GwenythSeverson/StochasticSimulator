@@ -69,7 +69,9 @@ unsigned gaines_counter_depth_for_length(std::size_t stream_length);
  * @param stream_Y      Denominator bitstream. Should satisfy p(X) <= p(Y); see DOMAIN above.
  * @param sng_seed      Seed for the internal comparator RNG. Fixed value -> reproducible output.
  * @param counter_depth Up/down counter depth, or GAINES_AUTO_DEPTH to size it to the stream.
- * @return The Z bitstream, or an empty vector if the inputs are malformed.
+ * @return The Z bitstream, one bit per input cycle.
+ * @throws std::invalid_argument if the streams are empty or of unequal length, or if
+ *         counter_depth is not a power of two <= 16384.
  */
 std::vector<bool> gaines_division_stream(const std::vector<bool>& stream_X,
                                          const std::vector<bool>& stream_Y,
@@ -78,12 +80,12 @@ std::vector<bool> gaines_division_stream(const std::vector<bool>& stream_X,
 
 /**
  * @brief The same division, decoded straight to a probability.
- * @return double The decoded output probability, or 0.0 if the inputs are malformed.
+ * @return double The decoded output probability.
+ * @throws std::invalid_argument on the same conditions as gaines_division_stream().
  *
- * NOTE ON THE ERROR CONTRACT: 0.0 is also a perfectly valid quotient (X = 0), so a caller cannot
- * tell a failure from a result. Every other module in this project throws instead. This one keeps
- * returning 0.0 only because the existing unit test pins that behaviour down; prefer
- * gaines_division_stream() and check for an empty vector if you need to distinguish the two.
+ * This used to return 0.0 on malformed input. It throws now: 0.0 is a legitimate quotient (X = 0),
+ * so the sentinel was indistinguishable from a real answer, and every other module in this project
+ * (sng, sobol, uMUL) already throws. Callers that were relying on the 0.0 need a try/catch.
  */
 double ud_counter_division(const std::vector<bool>& stream_X,
                            const std::vector<bool>& stream_Y,

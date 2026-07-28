@@ -8,7 +8,6 @@
 #include "bsg/lfsr.hpp"
 #include "general_functions.hpp"
 
-#include <iostream>
 #include <stdexcept>
 #include <vector>
 
@@ -31,13 +30,16 @@ bool is_power_of_two(unsigned v) {
     return v != 0 && (v & (v - 1)) == 0;
 }
 
-// Shared front-end check. Kept as a plain bool so both entry points report the same way.
-bool inputs_are_valid(const std::vector<bool>& stream_X, const std::vector<bool>& stream_Y) {
-    if (stream_X.empty() || stream_X.size() != stream_Y.size()) {
-        std::cerr << "Error: Input streams must be non-empty and of identical length.\n";
-        return false;
+// Shared front-end check. Throws rather than returning a sentinel: 0.0 is a legitimate quotient
+// (X = 0), so a numeric error code here would be indistinguishable from a real answer. This also
+// puts the divider in line with sng, sobol and uMUL, which all throw on malformed input.
+void validate_inputs(const std::vector<bool>& stream_X, const std::vector<bool>& stream_Y) {
+    if (stream_X.empty() || stream_Y.empty()) {
+        throw std::invalid_argument("Divider input streams must be non-empty.");
     }
-    return true;
+    if (stream_X.size() != stream_Y.size()) {
+        throw std::invalid_argument("Divider input streams must be of identical length.");
+    }
 }
 
 }  // namespace
@@ -64,9 +66,7 @@ std::vector<bool> gaines_division_stream(const std::vector<bool>& stream_X,
                                          const std::vector<bool>& stream_Y,
                                          uint32_t sng_seed,
                                          unsigned counter_depth) {
-    if (!inputs_are_valid(stream_X, stream_Y)) {
-        return {};
-    }
+    validate_inputs(stream_X, stream_Y);
 
     const std::size_t max_cycles = stream_X.size();
 
@@ -129,15 +129,7 @@ double ud_counter_division(const std::vector<bool>& stream_X,
                            const std::vector<bool>& stream_Y,
                            uint32_t sng_seed,
                            unsigned counter_depth) {
-    std::vector<bool> stream_Z =
-        gaines_division_stream(stream_X, stream_Y, sng_seed, counter_depth);
-
-    // Empty means the front-end check rejected the inputs; see the note in divider.hpp about why
-    // this collapses to the same 0.0 a genuine zero quotient would produce.
-    if (stream_Z.empty()) {
-        return 0.0;
-    }
-    return calculate_probability(stream_Z);
+    return calculate_probability(gaines_division_stream(stream_X, stream_Y, sng_seed, counter_depth));
 }
 
 }  // namespace StochasticSimulator

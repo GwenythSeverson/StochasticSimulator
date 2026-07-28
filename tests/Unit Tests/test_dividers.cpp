@@ -205,23 +205,33 @@ TEST_F(UDCounterDivisionStatisticalTest, SaturatesWhenXExceedsY) {
 // =====================================================================================
 
 // 4. Boundary Protection: Error Handling for Mismatched Lengths
-// Ensures your structural safety guards return gracefully instead of crashing.
+// This used to assert a 0.0 return. It now asserts a throw: 0.0 is a legitimate quotient (X = 0),
+// so the old sentinel could not be told apart from a real answer, and the rest of the project
+// (sng, sobol, uMUL) already throws on malformed input.
 TEST_F(UDCounterDivisionStatisticalTest, ErrorHandlingOnMismatchedStreams) {
     std::vector<bool> short_stream = {true, false, true};
     std::vector<bool> long_stream  = {true, false, true, false, true};
 
-    double result = ud_counter_division(short_stream, long_stream, 42);
-
-    // Should safely hit the error catch block and return 0.0
-    EXPECT_DOUBLE_EQ(result, 0.0);
-
-    // The stream form reports the same failure unambiguously -- 0.0 is a legitimate quotient, an
-    // empty vector is not. Prefer this form when you need to tell the two apart.
-    EXPECT_TRUE(gaines_division_stream(short_stream, long_stream, 42).empty());
+    EXPECT_THROW(ud_counter_division(short_stream, long_stream, 42), std::invalid_argument);
+    EXPECT_THROW(gaines_division_stream(short_stream, long_stream, 42), std::invalid_argument);
 }
 
 TEST_F(UDCounterDivisionStatisticalTest, ErrorHandlingOnEmptyStreams) {
     std::vector<bool> empty;
-    EXPECT_DOUBLE_EQ(ud_counter_division(empty, empty, 42), 0.0);
-    EXPECT_TRUE(gaines_division_stream(empty, empty, 42).empty());
+    std::vector<bool> populated = {true, false, true};
+
+    EXPECT_THROW(ud_counter_division(empty, empty, 42), std::invalid_argument);
+    EXPECT_THROW(gaines_division_stream(empty, empty, 42), std::invalid_argument);
+    EXPECT_THROW(ud_counter_division(empty, populated, 42), std::invalid_argument);
+    EXPECT_THROW(gaines_division_stream(populated, empty, 42), std::invalid_argument);
+}
+
+// A zero numerator is a real answer, not an error -- the distinction the old sentinel destroyed.
+TEST_F(UDCounterDivisionStatisticalTest, ZeroQuotientIsAResultNotAnError) {
+    std::vector<bool> zeros(4096, false);
+    std::vector<bool> Y = generate_test_stream(0.80, 4096, 24);
+
+    double result = 0.0;
+    EXPECT_NO_THROW(result = ud_counter_division(zeros, Y, 42));
+    EXPECT_NEAR(result, 0.0, 0.02);
 }
