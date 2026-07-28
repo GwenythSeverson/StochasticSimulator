@@ -22,9 +22,11 @@ add_executable(stochastic_computer
   bsg/sobol.cpp
   modules/adder.cpp
   modules/multiplier.cpp
+  modules/uMUL.cpp
   modules/divider.cpp
   tests/Unit\ Tests/test_adders.cpp
   tests/Unit\ Tests/test_multipliers.cpp
+  "tests/Unit Tests/test_uMUL.cpp"
   "tests/Unit\ Tests/test_dividers.cpp"
  "tests/Functional Tests/multiplier/test_multiplier_accuracy.cpp"
  "tests/Functional Tests/gen_fault_tests.cpp"
