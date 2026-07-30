@@ -108,9 +108,10 @@ TEST_F(UnaryMultiplierTest, LoadedValueIsExactAndSurvivesTheRun) {
     EXPECT_EQ(umul.get_rng_index(), 0u);
     EXPECT_EQ(umul.get_enabled_cycles(), 0u);
 
-    // p1 = 1 must reach 2^width -- the only value that beats every random number.
+    // p1 = 1 SATURATES to 2^width - 1. The register is width bits, exactly like `iB` in
+    // uMUL_uni.sv, so 2^width does not fit and p1 = 1.0 is not an expressible operand.
     umul.load_probability(1.0);
-    EXPECT_EQ(umul.get_value(), umul.get_entry());
+    EXPECT_EQ(umul.get_value(), umul.get_entry() - 1);
     umul.load_probability(0.0);
     EXPECT_EQ(umul.get_value(), 0u);
 }
@@ -126,7 +127,7 @@ TEST_F(UnaryMultiplierTest, LoadFromStreamCountsEveryOne) {
     EXPECT_EQ(umul.get_value(), (ones << 10) / N);
 
     umul.load_from_stream(constant_stream(true));
-    EXPECT_EQ(umul.get_value(), umul.get_entry());
+    EXPECT_EQ(umul.get_value(), umul.get_entry() - 1) << "all-ones saturates; 2^width does not fit";
     umul.load_from_stream(constant_stream(false));
     EXPECT_EQ(umul.get_value(), 0u);
 }
@@ -177,8 +178,8 @@ TEST_F(UnaryMultiplierTest, RejectsMalformedInput) {
     EXPECT_THROW(UnaryMultiplier::width_for_stream_length(0), std::invalid_argument);
 
     UnaryMultiplier umul(10);
-    EXPECT_NO_THROW(umul.load_value(1024));            // 2^width is legal
-    EXPECT_THROW(umul.load_value(1025), std::invalid_argument);
+    EXPECT_NO_THROW(umul.load_value(1023));            // 2^width - 1 is the top of the register
+    EXPECT_THROW(umul.load_value(1024), std::invalid_argument);  // 2^width does not fit in 10 bits
     EXPECT_THROW(umul.load_from_stream(empty), std::invalid_argument);
 }
 
@@ -203,19 +204,35 @@ TEST_F(UnaryMultiplierTest, WorkedCase896Times512) {
     EXPECT_NEAR(calculate_probability(out), (896.0 / 1024.0) * (512.0 / 1024.0), TOL);
 }
 
-// With in_1 loaded there is no estimator, so the rails are exact rather than merely close.
-TEST_F(UnaryMultiplierTest, RailsAreExact) {
+// With in_1 loaded there is no estimator, so the ZERO rail is bit-exact. The ONE rail is not
+// reachable at all: the value register is `width` bits, so the largest operand is 2^width - 1 and
+// the densest stream G can generate is (2^width - 1)/2^width. That is the RTL's behaviour --
+// uMUL_uni.sv's 8-bit iB tops out at 255/256 for exactly the same reason -- not a rounding slip.
+TEST_F(UnaryMultiplierTest, ZeroRailIsExactAndOneRailSaturates) {
     std::vector<bool> ones = constant_stream(true);
     std::vector<bool> zeros = constant_stream(false);
 
-    EXPECT_DOUBLE_EQ(umul_probability(ones, 1.0), 1.0);
+    // Multiplying by zero, or enabling with zero, is bit-perfect.
     EXPECT_DOUBLE_EQ(umul_probability(ones, 0.0), 0.0);
     EXPECT_DOUBLE_EQ(umul_probability(zeros, 1.0), 0.0);
     EXPECT_DOUBLE_EQ(umul_probability(zeros, 0.0), 0.0);
 
-    // p1 = 1 passes in_0 through untouched, bit for bit.
-    std::vector<bool> a = make_stream(0.375, 13);
-    EXPECT_EQ(umul_stream(a, 1.0), a);
+    // p1 = 1.0 saturates to 1023/1024. Exactly one cycle in the 1024 is lost: the one where the
+    // Sobol draw is 1023 and the strict ">" fails against a value of 1023.
+    EXPECT_DOUBLE_EQ(umul_probability(ones, 1.0), 1023.0 / 1024.0);
+    EXPECT_EQ(count_ones(umul_stream(ones, 1.0)), N - 1);
+
+    // WHERE the lost bit falls is exactly determined, not statistical. Sobol dimension 1 visits
+    // the value 1023 once per period, at index 682, so p1 = 1.0 behaves as a perfect pass-through
+    // until the enable has fired 683 times and drops precisely one bit thereafter.
+    std::vector<bool> sparse = make_stream(0.375, 13);   // 384 ones: never reaches index 682
+    ASSERT_LT(count_ones(sparse), 683u);
+    EXPECT_EQ(umul_stream(sparse, 1.0), sparse) << "below 683 enabled cycles it is a pass-through";
+
+    std::vector<bool> dense = make_stream(0.875, 13);    // 896 ones: passes index 682
+    ASSERT_GT(count_ones(dense), 683u);
+    EXPECT_EQ(count_ones(umul_stream(dense, 1.0)), count_ones(dense) - 1)
+        << "past 683 enabled cycles exactly one bit is lost -- never more";
 }
 
 TEST_F(UnaryMultiplierTest, MultipliesAgainstAKnownOperand) {
