@@ -1,5 +1,5 @@
 /**
- * uMUL -- the unary multiplier from uGEMM, Figure 3(a) (unipolar).
+ * SuMUL -- the unary multiplier from uGEMM, Figure 3(a) (unipolar).
  *   Wu, Li, Yin, Hsiao, Kim, San Miguel. "uGEMM: Unary Computing for GEMM Applications."
  *   https://jsm.ece.wisc.edu/docs/wu-toppicks2021.pdf
  * Unipolar only -- the bipolar XNOR decomposition in Figure 3(b) is deliberately not built here.
@@ -12,7 +12,7 @@
  *   output is forced to 0 no matter what in_1 was, so in_1's bit that cycle was generated and
  *   thrown away. Correlation error is precisely the accounting error left by those wasted bits.
  *
- *   uMUL stops wasting them. It does not take in_1's bitstream straight into the gate; it
+ *   SuMUL stops wasting them. It does not take in_1's bitstream straight into the gate; it
  *   regenerates in_1 locally, and only lets that generator step forward on the cycles the AND
  *   gate can actually use -- so in_0 becomes an ENABLE signal [(1) in Figure 3(a)]. The generator
  *   then walks its RNG sequence in order across exactly the in_0-is-1 cycles, and lays down p1 of
@@ -61,13 +61,13 @@
  *   Rule of thumb if you are picking by hand: keep N / 2^width somewhere around 8 to 32.
  *
  * MEASURED, N = 1024, auto width, sweeping p0,p1 over 0.05..0.95:
- *     operands sharing an RNG (SCC = 1)   uMUL RMSE 0.0044 max 0.012
+ *     operands sharing an RNG (SCC = 1)   SuMUL RMSE 0.0044 max 0.012
  *                                          AND RMSE 0.1113 max 0.250   <- collapses to min(p0,p1)
- *     independent operands                uMUL RMSE 0.0061 max 0.016
+ *     independent operands                SuMUL RMSE 0.0061 max 0.016
  *                                          AND RMSE 0.0010 max 0.003
- *   That is the trade in one table. Against correlated inputs uMUL is ~25x better and the AND
+ *   That is the trade in one table. Against correlated inputs SuMUL is ~25x better and the AND
  *   gate is simply wrong; against genuinely independent inputs the AND gate wins, because it
- *   reads in_1 directly and pays no warm-up while uMUL has to learn p1 first.
+ *   reads in_1 directly and pays no warm-up while SuMUL has to learn p1 first.
  *
  * EXACT 0 AND EXACT 1 are the warm-up's worst case, for the same reason: the window boots at 0.5,
  *   so a few cycles' worth of the wrong bit gets out before it fills. At N = 1024 that is
@@ -78,17 +78,17 @@
  *   C is a SLIDING window, so it tracks in_1's *local* density. That is exactly right for the
  *   well-mixed streams an SNG produces, and wrong for a non-stationary stream -- feed it in_1
  *   with all its ones bunched at the front and C will faithfully report ~1.0 during the bunch.
- *   uMUL removes the correlation requirement, not the requirement that a stream be well mixed.
+ *   SuMUL removes the correlation requirement, not the requirement that a stream be well mixed.
  *
  * USAGE:
  *   1. Whole stream in one call -- width sized to the stream automatically:
- *        std::vector<bool> out = umul_stream(stream_a, stream_b);
- *        double z = umul_probability(stream_a, stream_b);
+ *        std::vector<bool> out = sumul_stream(stream_a, stream_b);
+ *        double z = sumul_probability(stream_a, stream_b);
  *   2. Per-cycle, mirroring the AND-gate Multiplier's loop shape (but stateful -- see below):
- *        UnaryMultiplier umul = UnaryMultiplier::for_stream_length(N);
- *        for (size_t i = 0; i < N; ++i) out.push_back(umul.multiply(stream_a[i], stream_b[i]));
+ *        SUnaryMultiplier sumul = SUnaryMultiplier::for_stream_length(N);
+ *        for (size_t i = 0; i < N; ++i) out.push_back(sumul.multiply(stream_a[i], stream_b[i]));
  *   3. Explicit width when you want to control the tradeoff yourself:
- *        UnaryMultiplier umul(6);
+ *        SUnaryMultiplier sumul(6);
  *
  * NOT STATELESS -- unlike Multiplier, and like Adder is not either in spirit. It carries the
  * counter window and the RNG index across cycles, so one instance belongs to one stream pair.
@@ -110,7 +110,7 @@
 
 namespace StochasticSimulator {
 
-class UnaryMultiplier {
+class SUnaryMultiplier {
 public:
     // The counter is 2^width physical flip-flops, so this stops being hardware past ~16.
     static constexpr unsigned MAX_WIDTH = 16;
@@ -123,21 +123,21 @@ public:
     /**
      * @param width            Precision of the unit. The counter window is 2^width bits deep and
      *                         the RNG inside G has period 2^width. See SIZING above.
-     * @param sobol_dimension  Dimension for G's RNG. Give each uMUL in a design its own dimension
+     * @param sobol_dimension  Dimension for G's RNG. Give each SuMUL in a design its own dimension
      *                         so their regenerated streams are not correlated with each other.
      */
-    explicit UnaryMultiplier(unsigned width = DEFAULT_WIDTH, unsigned sobol_dimension = 1);
+    explicit SUnaryMultiplier(unsigned width = DEFAULT_WIDTH, unsigned sobol_dimension = 1);
 
     // Interop constructor: sizes the unit to one of the existing stream-length modes. Note this
     // sets width = log2(length), which is the degenerate case SIZING warns about -- it is here
     // for symmetry with SobolRNG, not because it is the right width for a stream that long.
-    explicit UnaryMultiplier(StreamLength lengthMode, unsigned sobol_dimension = 1);
+    explicit SUnaryMultiplier(StreamLength lengthMode, unsigned sobol_dimension = 1);
 
     // Balances warm-up against counter precision: the window lands near 2 * sqrt(stream_length).
     static unsigned width_for_stream_length(std::size_t stream_length);
 
     // Same thing as a factory, mirroring SobolRNG::for_length.
-    static UnaryMultiplier for_stream_length(std::size_t stream_length, unsigned sobol_dimension = 1);
+    static SUnaryMultiplier for_stream_length(std::size_t stream_length, unsigned sobol_dimension = 1);
 
     /**
      * @brief One clock cycle of Figure 3(a).
@@ -150,7 +150,11 @@ public:
     // Returns the unit to its power-on state: counter window half full, RNG index at 0.
     void reset();
 
-    // C's binary output this cycle: ones currently in the window, in [0, 2^width].
+    /**
+     * C's binary output this cycle: ones currently in the window, in [0, 2^width].
+     * RECOMPUTED from the shift register on every call -- see the note on `window` below. This is
+     * a parallel counter (popcount tree) in hardware, not a stored running total.
+     */
     uint32_t get_counter_value() const;
 
     // The same thing as a probability -- what the unit currently believes p1 to be.
@@ -162,15 +166,49 @@ public:
     unsigned get_width() const;
     uint64_t get_entry() const;  // 2^width: window depth and RNG period
 
+    // ---- Bit-level state access, for fault-injection campaigns -------------------------------
+    // These expose the unit's raw sequential state so a study can flip one specific bit and watch
+    // what happens, rather than perturbing an input stream and inferring. The two kinds of state
+    // behave completely differently under an upset, which is the point:
+    //
+    //   window cells  -- SELF-SCRUBBING. A flipped cell shifts off the end within 2^width cycles
+    //                    and the unit heals with no intervention. While resident it moves the
+    //                    comparator threshold by exactly 1/2^width.
+    //   rng_index     -- PERSISTENT. A flip here is never repaired; it permanently offsets G's
+    //                    position in the Sobol sequence for the rest of the stream.
+    //
+    // Cell 0 is the bit that shifts out next, cell (2^width - 1) the one just written.
+    std::size_t window_cells() const;                 // == 2^width
+    bool get_window_cell(std::size_t cell) const;
+    void set_window_cell(std::size_t cell, bool value);
+    void flip_window_cell(std::size_t cell);          // inject a single-event upset
+
+    uint64_t get_rng_index() const;
+    void set_rng_index(uint64_t index);               // inject an upset into the index register
+
 private:
     unsigned width;
     uint64_t entry;
 
-    // Counter C. A circular buffer standing in for the shift register: `oldest` is the slot that
-    // falls off next, and `ones_count` is maintained incrementally so the read stays O(1).
-    std::vector<bool> window;
+    /**
+     * Counter C -- and the ONLY state it keeps is the shift-register cells themselves, packed
+     * 64 to a word so the count is one popcount per word.
+     *
+     * The binary count is deliberately NOT stored. It is recomputed from these cells every cycle,
+     * matching the reference implementation, whose ShiftReg returns a fresh torch.sum(self.sr, 0)
+     * on each call rather than carrying a running total.
+     *
+     * That choice is invisible in fault-free operation -- a running tally produces bit-identical
+     * output -- but it decides the unit's radiation behaviour. A separately registered tally would
+     * be state that never resynchronises with the cells beneath it, so an upset in it would
+     * corrupt every subsequent cycle forever. Deriving the count means the counter inherits the
+     * shift register's self-scrubbing property, and the only thing an upset can damage is a cell
+     * that is already on its way out.
+     *
+     * `oldest` is the physical index of the cell that shifts out next.
+     */
+    std::vector<uint64_t> window;
     std::size_t oldest;
-    uint32_t ones_count;
 
     // Bit stream generator G. `rng_index` is the register the enable signal clocks; the RNG's
     // value this cycle is Sobol point number rng_index. Addressing the sequence by index rather
@@ -179,22 +217,24 @@ private:
     SobolRNG rng;
     uint64_t rng_index;
     uint64_t enabled_cycles;
+
+    std::size_t physical_index(std::size_t cell) const;  // logical cell -> packed bit index
 };
 
 /**
- * Runs a whole stream pair through one uMUL and returns the output stream.
+ * Runs a whole stream pair through one SuMUL and returns the output stream.
  * Leaving `width` at AUTO_WIDTH sizes the counter to the stream via width_for_stream_length().
  * Throws if the streams are empty or of unequal length.
  */
-std::vector<bool> umul_stream(const std::vector<bool>& stream_0,
+std::vector<bool> sumul_stream(const std::vector<bool>& stream_0,
                               const std::vector<bool>& stream_1,
-                              unsigned width = UnaryMultiplier::AUTO_WIDTH,
+                              unsigned width = SUnaryMultiplier::AUTO_WIDTH,
                               unsigned sobol_dimension = 1);
 
 /** The same run, decoded straight to a probability. Expect p0 * p1. */
-double umul_probability(const std::vector<bool>& stream_0,
+double sumul_probability(const std::vector<bool>& stream_0,
                         const std::vector<bool>& stream_1,
-                        unsigned width = UnaryMultiplier::AUTO_WIDTH,
+                        unsigned width = SUnaryMultiplier::AUTO_WIDTH,
                         unsigned sobol_dimension = 1);
 
 }  // namespace StochasticSimulator
