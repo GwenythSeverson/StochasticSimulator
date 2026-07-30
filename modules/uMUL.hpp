@@ -47,10 +47,23 @@
  *   estimator error. Every failure mode that comes from watching a stream and guessing its
  *   density is simply absent:
  *     - no warm-up. The value is right on cycle 1.
- *     - exact at the rails. value = 0 never fires the strict ">"; value = 2^width beats every
- *       random number. p1 = 0 and p1 = 1 come out exactly 0 and exactly 1.
+ *     - the zero rail is exact. value = 0 never fires the strict ">", so p1 = 0 comes out as a
+ *       bit-perfect zero.
  *     - no dependence on in_1's stream quality, because there is no in_1 stream.
  *     - no dependence on in_1 being stationary, well-mixed, or long enough to measure.
+ *
+ * THE ONE RAIL IS NOT REACHABLE, and that is the RTL's behaviour rather than an oversight.
+ *   The value register is exactly `width` bits, holding [0, 2^width - 1], the same as `iB` in
+ *   uMUL_uni.sv. The comparator is `value > random`, and random also spans [0, 2^width - 1], so
+ *   the largest expressible density is
+ *       (2^width - 1) / 2^width      -- 1023/1024 at width 10, 255/256 at the RTL's width 8
+ *   and p1 = 1.0 simply does not exist as an operand. load_probability(1.0) saturates to
+ *   2^width - 1 rather than pretending otherwise.
+ *
+ *   Representing p1 = 1.0 exactly would take a (width + 1)-bit register so the value 2^width
+ *   could be stored -- one extra flip-flop, purely to buy one extra operand at the top of the
+ *   range. uGEMM does not spend it, so neither does this. The consequence is worth stating
+ *   plainly: multiplying by "one" gives you 1023/1024, not a pass-through.
  *   The only quantization left anywhere is the 1/2^width step of the value register, and since
  *   that costs `width` flip-flops rather than 2^width you can simply make it big. Compare
  *   SuMUL next door, whose whole SIZING section is a two-sided tradeoff forced on it by having to
@@ -168,19 +181,24 @@ public:
     // ---- Loading in_1 -- the `loadB` port ----------------------------------------------------
 
     /**
-     * Loads the raw register value, in [0, 2^width]. 2^width is deliberately reachable: with the
-     * strict ">" comparator it is the only value that beats every random number, so it is how
-     * p1 = 1 is expressed. Throws above that.
+     * Loads the raw register value. The register is `width` bits, so the range is
+     * [0, 2^width - 1] -- exactly `iB` in uMUL_uni.sv. Throws above that; 2^width is NOT a legal
+     * operand and p1 = 1.0 is therefore not representable. See the note in the file header.
      */
     void load_value(uint64_t value);
 
-    /** Same, as a probability in [0, 1]. Truncating threshold, matching BitstreamGenerator. */
+    /**
+     * Same, as a probability in [0, 1]. Truncating threshold, matching BitstreamGenerator.
+     * SATURATES: probability 1.0 loads 2^width - 1, the largest the register holds, which
+     * generates a density of (2^width - 1)/2^width rather than a stream of solid ones.
+     */
     void load_probability(double probability);
 
     /**
-     * Counts the ones in `stream` and loads the exact ratio -- Figure 3(a)'s counter run to
-     * completion before the multiply begins. Integer throughout, so the only rounding is the
-     * register's own 1/2^width truncation. Throws on an empty stream.
+     * Counts the ones in `stream` and loads the ratio -- Figure 3(a)'s counter run to completion
+     * before the multiply begins. Integer throughout, so the only rounding is the register's own
+     * 1/2^width truncation. An all-ones stream saturates to 2^width - 1, same as
+     * load_probability(1.0). Throws on an empty stream.
      */
     void load_from_stream(const std::vector<bool>& stream);
 

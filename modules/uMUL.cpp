@@ -71,10 +71,12 @@ UnaryMultiplier UnaryMultiplier::for_stream_length(std::size_t stream_length,
 }
 
 void UnaryMultiplier::load_value(uint64_t new_value) {
-    // 2^width is a legal value, not an off-by-one: the comparator is a strict ">", so 2^width is
-    // the only setting that beats every random number and therefore the only way to say p1 = 1.
-    if (new_value > entry) {
-        throw std::invalid_argument("uMUL value must be in [0, 2^width].");
+    // The register is `width` bits and holds [0, 2^width - 1] -- exactly `iB` in uMUL_uni.sv.
+    // 2^width would need a (width + 1)-bit register; uGEMM does not spend that flip-flop, so
+    // neither does this, and p1 = 1.0 is consequently not an expressible operand.
+    if (new_value >= entry) {
+        throw std::invalid_argument("uMUL value must be in [0, 2^width - 1]; the register is "
+                                    "width bits wide, so 2^width does not fit in it.");
     }
     value = new_value;
 }
@@ -83,11 +85,12 @@ void UnaryMultiplier::load_probability(double probability) {
     if (!(probability >= 0.0 && probability <= 1.0)) {
         throw std::invalid_argument("uMUL probability must be between 0.0 and 1.0.");
     }
-    // Truncating threshold, same as BitstreamGenerator and SobolRNG::next_bit. p = 1.0 lands
-    // exactly on 2^width, which is what pins the generated stream to all ones.
+    // Truncating threshold, same as BitstreamGenerator and SobolRNG::next_bit, then saturated to
+    // what the register can actually hold. p = 1.0 lands on 2^width - 1 and generates
+    // (2^width - 1)/2^width, not a stream of solid ones -- there is no operand that does that.
     value = static_cast<uint64_t>(probability * static_cast<double>(entry));
-    if (value > entry) {
-        value = entry;  // guard the float edge case
+    if (value >= entry) {
+        value = entry - 1;
     }
 }
 
@@ -104,10 +107,13 @@ void UnaryMultiplier::load_from_stream(const std::vector<bool>& stream) {
     for (bool bit : stream) {
         if (bit) ++ones;
     }
-    // Integer throughout: the counter of Figure 3(a) run to completion, then scaled once. All
-    // ones gives exactly `entry`, no ones gives exactly 0, and the only rounding anywhere is this
-    // single truncating divide.
+    // Integer throughout: the counter of Figure 3(a) run to completion, then scaled once. The
+    // only rounding anywhere is this single truncating divide, followed by saturation into the
+    // width-bit register -- an all-ones stream would scale to `entry`, which does not fit.
     value = (ones << width) / length;
+    if (value >= entry) {
+        value = entry - 1;
+    }
 }
 
 bool UnaryMultiplier::multiply(bool in_0) {
@@ -124,7 +130,9 @@ bool UnaryMultiplier::multiply(bool in_0, const CycleUpset& upset) {
     // ---- G: bit stream generator ------------------------------------------------------------
     // C's output is just the loaded register -- in_1 arrived binary, so there is nothing to
     // count. The comparator is the SNG's: truncating threshold, strict ">", the same convention
-    // BitstreamGenerator and SobolRNG::next_bit use, which is what makes the rails exact.
+    // BitstreamGenerator and SobolRNG::next_bit use. value = 0 can never win, which is what makes
+    // the zero rail bit-exact; value = 2^width - 1 loses only to a draw of 2^width - 1, which is
+    // why the top of the range is (2^width - 1)/2^width rather than 1.
     // The bus mask is clipped to `width` wires; a w-bit bus has no more than that to hit.
     uint32_t bus_mask = static_cast<uint32_t>(upset.rng_bus_flip & (entry - 1));
     uint32_t random_value = rng.value_at(rng_index) ^ bus_mask;
