@@ -111,7 +111,7 @@ struct Accsumulator {
 
 }  // namespace
 
-TEST(UMULAccuracyTest, ExhaustiveArrangementSweep) {
+TEST(SUMULAccuracyTest, ExhaustiveArrangementSweep) {
     // =========================================================================
     // 1. CONFIGURATION BLOCK -- targets must be exact multiples of 1/1024
     // =========================================================================
