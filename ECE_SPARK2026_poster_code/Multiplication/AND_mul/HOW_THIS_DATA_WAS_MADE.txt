@@ -1,0 +1,387 @@
+================================================================================================
+HOW THIS DATA WAS MADE                              ECE SPARK 2026 -- AND-gate multiplier
+================================================================================================
+
+This file explains, in order: what is being simulated, what algorithm produced each number, why
+each design choice was made over the alternatives, and exactly what each mark on each figure
+represents. It is written so that someone standing at the poster can ask "what trials is that
+actually showing me?" and get a straight answer.
+
+FILES IN THIS FOLDER
+    AND_Mul_poster.cpp          generates both CSVs. One source file, run as a GoogleTest case.
+    AND_Mul_poster_warmup.csv   figure 1 data -- zero-fault early termination
+    AND_Mul_poster_faults.csv   figure 2 data -- fault response, 0..36 flipped bits
+    plot_AND_Mul_poster.m       reads both CSVs, writes both PNGs. One script.
+    AND_Mul_poster_warmup.png   figure 1
+    AND_Mul_poster_faults.png   figure 2
+
+TO REGENERATE
+    stochastic_computer.exe --gtest_filter=AndMulPoster.*        (about 6 seconds)
+    then run plot_AND_Mul_poster.m in MATLAB
+Both write only into this folder. The .cpp locates itself with __FILE__, so it does not matter
+what directory the test binary is launched from.
+
+The C++ run is seeded with a fixed constant (std::mt19937 rng(1337)). Every number in both CSVs
+reproduces byte for byte on re-run. Nothing here changes between runs.
+
+
+================================================================================================
+1. WHAT IS BEING SIMULATED
+================================================================================================
+
+A stochastic-computing multiplier is a single AND gate. Each operand arrives as a bitstream whose
+VALUE is its fraction of ones; the gate ANDs them cycle by cycle, and the output stream's fraction
+of ones is the product. The whole multiplier is one gate, which is the entire appeal.
+
+The case studied here:
+
+    stream length      N = 256 cycles
+    both operands      0.5, i.e. 128 ones out of 256
+    intended product   0.5 x 0.5 = 0.25, i.e. 64 ones out of 256
+
+WHY 0.5 x 0.5. It is the worst case for the thing being measured, and it is the cleanest.
+Both operands sit at the point of maximum entropy -- 128 ones is the largest possible number of
+distinct arrangements, C(256,128) = 5.8e75, so the operand space being averaged over is as big as
+it gets at this stream length. The product 0.25 also lands mid-scale, so the error has room to
+move in both directions without clipping at 0 or 1, which an operand pair like 0.9 x 0.9 would not.
+
+WHY N = 256. It is a realistic stream length for a unary accelerator (long enough that the
+quantisation floor 1/256 = 0.0039 is well below the fault-induced errors being measured, short
+enough to be a plausible latency), and it makes every region size in section 3 come out to exactly
+64, which keeps the combinatorics legible.
+
+
+================================================================================================
+2. THE FILTER -- WHAT COUNTS AS A TRIAL
+================================================================================================
+
+An arbitrary pair of 0.5-valued streams does NOT produce 0.25. The AND gate emits a one only where
+both streams carry a one, so the output depends on the OVERLAP of the two streams, which can be
+anywhere from 0 to 128 ones depending on how they happen to line up. This is stochastic computing's
+correlation problem, and it is a separate effect from the one this poster is about.
+
+So a pair is KEPT only if the gate puts it at exactly 64/256 = 0.25. This is checked by RUNNING
+the gate and counting, not by predicting it:
+
+    int total_ones = 0;
+    for (int i = 0; i < N; ++i) if (gate.multiply(A[i], B[i])) ++total_ones;
+    ASSERT_EQ(total_ones, TARGET);
+
+WHY FILTER. The question the poster asks is "what does a radiation-induced bit flip do to a correct
+multiplication?" Mixing in pairs that were already wrong from correlation would smear that answer
+together with a different phenomenon and neither would be readable. Starting from an exactly
+correct answer means every deviation on figure 2 is attributable to the injected faults and to
+nothing else. The zero-flip column is exactly 0.25 with zero spread, which is the visual proof
+that the baseline is clean.
+
+
+================================================================================================
+3. THE CENTRAL ALGORITHM -- WHY THE FAULT SWEEP IS ENUMERATED BY OUTCOME
+================================================================================================
+
+3.1 THE LITERAL PROCEDURE IS UNREACHABLE
+----------------------------------------
+Stated literally, the sweep is: take every 256-bit representation of 0.5, pair it with every other
+one, keep the pairs landing at 0.25, then try every possible layout of 1, 2, ... 36 flipped bits
+across the 512 bits the pair contains. Counting that:
+
+    representations of 0.5            C(256,128)  = 5.8e75
+    pairs of them                                 ~ 1.7e151
+    flip layouts at f = 4             C(512,4)    = 2.8e9      PER PAIR
+    flip layouts at f = 36            C(512,36)   ~ 1e56       PER PAIR
+
+That is on the order of 1e300 simulations. The observable universe holds about 1e80 atoms. This is
+not "slow" -- it is not a computation that can exist, on any hardware, ever. Capping the flips at
+36 does not rescue it, because step one is already out of range before a single bit is flipped.
+
+3.2 THE COLLAPSE -- WHY THAT DOES NOT MATTER
+--------------------------------------------
+An AND gate has no memory and no notion of position. Cycle 7's output depends on cycle 7's two
+input bits and nothing else. So for a KEPT pair, the 256 cycles sort into exactly four regions,
+and every kept pair has the same region sizes:
+
+    region  A  B   output   size   what flipping A does        what flipping B does
+    ------  -  -   ------   ----   ----------------------      ----------------------
+    OV      1  1     1        64   REMOVES an output one       REMOVES an output one
+    AO      1  0     0        64   nothing (B is already 0)    ADDS an output one
+    BO      0  1     0        64   ADDS an output one          nothing
+    NN      0  0     0        64   nothing                     nothing
+
+(The sizes are forced: 64 overlap cells is what "exactly 0.25" means, and 128 ones each minus 64
+shared leaves 64 alone in each stream, leaving 64 cycles where neither carries a one.)
+
+The consequence: the output ones-count depends ONLY on how many flips landed in each region, never
+on which cells inside a region, and never on which of the 1e151 pairs was used. All 1e300 trials
+land on at most 2f+1 distinct answers per flip level, and the NUMBER of trials reaching each
+answer is an exact product of multinomial coefficients.
+
+This is lossless compression of the trial space, not a sample of it. Nothing is discarded.
+
+3.3 THE FOUR FLIP STATES PER CYCLE
+----------------------------------
+Each of the 256 cycles carries TWO flippable bits, one in stream A and one in stream B, so its
+flip state is one of {none, A only, B only, both}. Working out what each state does per region is
+the entire model:
+
+    OV (1,1) out 1 :  none -> 1,   A -> 0,   B -> 0,   both -> 0     ANY flip loses the one
+    AO (1,0) out 0 :  none -> 0,   A -> 0,   B -> 1,   both -> 0     only B-alone gains
+    BO (0,1) out 0 :  none -> 0,   A -> 1,   B -> 0,   both -> 0     only A-alone gains
+    NN (0,0) out 0 :  none -> 0,   A -> 0,   B -> 0,   both -> 1     only BOTH gains
+
+THIS IS WHERE THE FIRST VERSION OF THE CODE WAS WRONG, and it is worth recording. That version
+enumerated flips as four independent single-bit events. It double-counted cycles where both bits
+flip and it missed the NN "both flips create a one from nothing" path entirely, which left the
+weights unnormalised and produced NaN means from f = 2 upward. Treating the CYCLE as the unit,
+with four states, fixes it.
+
+3.4 THE COUNTING
+----------------
+For one region of 64 cells, choosing (x, y, z) = (A-only, B-only, both) costs x + y + 2z flips and
+there are 64! / (x! y! z! (64-x-y-z)!) ways to place them. That builds a per-region table
+
+    table[region][flips][output_ones_contributed] = number of ways
+
+which is then convolved across the four regions by dynamic programming to give
+
+    dp[f][k] = number of flip layouts, over all 512 positions, that leave k output ones
+
+All arithmetic is in log-factorial space (long double) because the raw counts overflow every
+integer type -- the largest is around 1e56 at f = 36.
+
+
+================================================================================================
+4. WHY IT IS HONEST TO CALL THESE REAL TRIALS
+================================================================================================
+
+Section 3 could have been implemented as a spreadsheet formula. It was not. The combinatorics
+supply ONLY the weight attached to each outcome; the outcome itself is always simulated. Three
+independent passes run.
+
+Passes 1 and 2 belong to the fault sweep. Together they are 8,214 + 740,000 = 748,214 real gate
+simulations, which is the figure printed in figure 2's subtitle. Pass 3 is figure 1's own
+198 runs, counted separately because it is a different experiment.
+
+PASS 1 -- PER-CLASS MEASUREMENT (INSTANCES_PER_CLASS = 6)
+    Every reachable outcome is built as actual 256-bit bool vectors, faulted, and pushed through
+    the gate -- six times, each on an INDEPENDENTLY SHUFFLED region layout, with ASSERT_EQ against
+    the enumerated result. This is what turns the collapse from an argument into an observation:
+    if position mattered after all, one of these six shuffles would produce a different count and
+    the test would fail. Six was chosen as enough to break any accidental alignment in the
+    canonical layout without multiplying a 1,369-class sweep into something slow.
+
+PASS 2 -- FORWARD MONTE CARLO (MC_TRIALS_PER_FLIP = 20,000 per flip level)
+    Pass 1 proves each outcome is REACHABLE and STABLE. It does not prove the WEIGHTS are right,
+    because it visits each class once regardless of how likely that class is. So pass 2 does the
+    naive thing on purpose: draw a fresh random kept pair, pick f of the 512 bit positions
+    uniformly at random (partial Fisher-Yates, so no position is picked twice), flip them, run the
+    gate, tally where it landed. Nothing is steered toward any class. 20,000 trials at each of the
+    37 levels = 740,000 runs.
+
+    Its histogram ships in the CSV as MC_Probability, sitting directly beside the enumerated
+    Probability, so the two can be compared row by row on the poster.
+
+PASS 3 -- WARM-UP (198 classes)
+    Each (L, j) truncation class of figure 1 is likewise constructed and run, with the measured
+    prefix ones-count asserted equal to j.
+
+THE AGREEMENT CHECK. The worst absolute disagreement between the enumerated probability and the
+measured random-trial frequency, across all 37 flip levels, is 0.0065. At 20,000 draws the
+standard error on the most probable outcome is of order 0.003 (sqrt(p(1-p)/n), which is 0.0035 for
+the p = 0.5 outcome at f = 1), so 0.0065 is ordinary sampling noise -- the two methods agree to
+within what random trials can resolve. This is a test assertion, not a comment:
+
+    EXPECT_LT(worst_gap, 0.02);
+
+so if the combinatorics were ever broken by an edit, the build fails rather than quietly shipping
+a wrong figure.
+
+WHAT ENUMERATION BUYS THAT SAMPLING CANNOT. Look at the f = 36 rows of the faults CSV. The extreme
+outcomes 28/256 = 0.109375 and 100/256 = 0.390625 carry probabilities of 2.9e-27 and 3.2e-24, and
+their MC_Probability column reads exactly 0.000000. Twenty thousand random trials will never land
+on them; twenty billion would not either. Pass 1 constructs those layouts directly and measures
+them. That is why figure 2's caps are exact bounds and not "the worst thing we happened to see".
+
+
+================================================================================================
+5. FIGURE 1 -- ZERO-FAULT EARLY TERMINATION      (AND_Mul_poster_warmup.csv/.png)
+================================================================================================
+
+THE QUESTION. With no faults at all, how wrong is the answer if you stop the stream early? Unary
+arithmetic is progressive -- a partial stream is a usable estimate -- and this quantifies the price
+of stopping at 2, 4, 8, 16, 32, 64, 128 or 256 cycles.
+
+WHY THIS ONE IS ALSO EXHAUSTIVE. Early termination DOES depend on where the ones sit: truncating
+at cycle 16 looks at a specific 16 bits, so the collapse of section 3 does not apply directly.
+But a kept pair's output ones ARE its overlap cells, so truncating at L asks exactly one question:
+how many of the 64 overlap cells landed in the first L cycles? Across all C(256,128)^2 = 1e151
+arrangements, that count is a HYPERGEOMETRIC draw -- choosing L positions out of 256 when 64 of
+them are overlap:
+
+    P(j overlap cells in the first L)  =  C(64,j) * C(192,L-j) / C(256,L)
+
+Summing over j is the exact average over every arrangement, in at most L+1 terms instead of 1e151
+trials. Each (L, j) class is then CONSTRUCTED as real streams and RUN, with ASSERT_EQ on the
+prefix count, so the estimate j/L is measured and not assumed. 198 classes cover all 1e151
+arrangements exactly.
+
+    An earlier version of this half drew a few thousand random pairs and truncated each. It was
+    labelled as a sample and it was honest, but it was noisy at small L and it could not claim
+    the extremes. Replacing it with the hypergeometric class enumeration removed both problems.
+
+WHAT IS PLOTTED. X is the truncation point on a log axis (the ticks are the eight lengths, and a
+log axis is used because they double). Y is MeanAbsError -- the arrangement-weighted mean of
+|j/L - 0.25| over every class at that length.
+
+HOW TO READ IT. The curve falls from 0.281 at L = 2 to exactly 0 at L = 256 -- the measured values
+are 0.281, 0.157, 0.115, 0.082, 0.056, 0.037, 0.022, 0. The ratio between successive points --
+i.e. what one doubling of the stream length buys -- goes 1.79, 1.37, 1.41, 1.45, 1.52, 1.73, then
+straight to zero.
+
+THE MIDDLE OF THAT IS 1/sqrt(L). From L = 4 to L = 32 the ratio sits within a few percent of
+sqrt(2) = 1.414, which is the classic stochastic-computing law: error falls as one over the square
+root of the cycle count, so every extra decimal digit of accuracy costs 100x the cycles.
+
+THE TAIL FALLS FASTER, AND THAT IS NOT NOISE. 1/sqrt(L) is the binomial law, which assumes drawing
+with replacement. This is a hypergeometric draw from a FINITE population of 256 cycles, so it
+carries the finite-population correction. Once L passes halfway, the prefix has seen most of the
+64 overlap cells and the remaining uncertainty collapses: 1.52, then 1.73, then exactly 0 at
+L = 256, where the only class left is the whole kept pair, which is 0.25 by the filter of section
+2. The zero at the right edge is exact by construction, not a limit being approached.
+
+The L = 2 point is steep for the opposite reason -- with a 2-cycle prefix the only possible
+estimates are 0, 0.5 and 1, so the error there is dominated by coarse quantisation rather than by
+sampling. Both ends of the curve depart from 1/sqrt(L), for unrelated reasons.
+
+Reading it the other way round is the useful direction for a designer: 32 cycles -- one eighth of
+the stream -- already gets mean error to 0.056, and 64 cycles gets it to 0.037. That is the
+argument FOR early termination, not against it.
+
+The MinEstimate/MaxEstimate columns in the CSV read 0.0 and 1.0 for short lengths. That is real:
+some arrangements put zero overlap cells in the first two cycles, others put both. They are not
+plotted because at short L they are uninformative -- they simply say "the extremes are the whole
+range" -- and drawing them would flatten the curve that is the point of the figure.
+
+
+================================================================================================
+6. FIGURE 2 -- FAULT RESPONSE                    (AND_Mul_poster_faults.csv/.png)
+================================================================================================
+
+THE QUESTION. Given a multiplication that was exactly correct, what does radiation damage do to
+it? X is the number of bit flips injected across both 256-bit streams; Y is the fraction of ones
+the finished answer carries.
+
+WHY 0..36 FLIPS. 36 flips out of 512 bits is about 7% corruption, far past any realistic
+single-event-upset rate for one 256-cycle operation, so the sweep brackets the operating regime
+rather than sitting inside it. The plotted ticks are 0, 1, 2, 4, 8, 16, 32 -- powers of two on a
+LOG x axis, because the interesting behaviour spans two orders of magnitude and a linear axis would
+crush everything below 8 into the left margin.
+
+ZERO ON A LOG AXIS. log(0) does not exist, so the 0-flip column is drawn at x = 0.5 -- one octave
+left of 1, where the next tick would fall -- and labelled "0". Its POSITION is cosmetic; its
+HEIGHT is the real measurement. It is the only tick whose spacing is not literal.
+
+WHAT EACH MARK IS
+    BLUE SPINE      the full reach of the answer, worst under-shoot to worst over-shoot
+    BLUE CAPS       the exact extreme outcomes, measured by constructing those layouts
+    RED DASHES      the edges of the CENTRED interval holding at least 90% of trials
+    BLUE DOT        the trial-weighted mean
+    RED DASHED LINE 0.25, the intended result
+
+THE MEAN STAYS AT 0.25 AT EVERY FLIP LEVEL. This is the headline result and it is not an accident
+of averaging: the region table in section 3.3 is symmetric -- OV (64 cells) can only lose ones and
+BO (64 cells) can only gain them, at equal size and equal probability of being hit. So faults on a
+0.5 x 0.5 product are UNBIASED. They add variance, not drift. For an accelerator that accumulates
+many products, that matters more than the spread does, because unbiased errors partially cancel
+across a sum while a biased one accumulates.
+
+THE SPREAD GROWS AS sqrt(f). At 1 flip the reach is 0.246 to 0.254 (one output bit either way, the
+1/256 quantum). At 32 flips it is 0.125 to 0.375. The extremes are the degenerate layouts: every
+single flip landing in OV (removing 32 ones) or every one landing in BO (adding 32). At the full
+f = 36 the CSV records 0.109375 and 0.390625, whose probabilities are 2.9e-27 and 3.2e-24.
+
+WHY THE 90% BAND IS CENTRED AND NOT NARROWEST
+    The first version used the NARROWEST interval containing 90% of the trials. That was subtly
+    wrong for this data. At 2 flips the centre three outcomes hold 87.6% -- just under target --
+    and extending one step gives 93.79% going low or 93.83% going high, for the SAME span width.
+    An effectively exact tie, resolved by whichever direction the scan happened to reach first,
+    which planted a visible leftward skew on the figure that does not exist in the data. On a
+    poster that reads as "faults bias the result downward", which is precisely the wrong
+    conclusion, and the opposite of what section 6's symmetry argument establishes.
+
+    The band is now grown SYMMETRICALLY outward from the outcome nearest the mean until it holds
+    90%. There is no tie to break, and the figure now says what the data says: the middle 90% of
+    answers sits centred on 0.25.
+
+WHY RED IS ABSENT AT 0, 1 AND 2 FLIPS
+    Those levels have only 1, 3 and 5 reachable outcomes. Ninety percent of the trials cannot be
+    carved out of a set that small -- the centred band swallows the entire range -- so the red
+    dashes would land exactly on the blue caps. Drawing them there implies a distinction that does
+    not exist and makes the low end look broken. They are suppressed by an explicit test
+    (bLo > mn || bHi < mx) and their absence is documented here rather than hidden.
+
+CAP WIDTHS ARE MULTIPLICATIVE (x/1.055 to x*1.055 for blue, 1.075 for red) so that every cap
+renders the same visual width at every tick on a log axis. An additive half-width would look
+invisible at x = 1 and enormous at x = 32.
+
+
+================================================================================================
+7. CSV COLUMN REFERENCE
+================================================================================================
+
+AND_Mul_poster_warmup.csv  -- one row per truncation length
+    N                   truncation point in cycles (2, 4, ... 256)
+    MeanEstimate        arrangement-weighted mean of j/L. Exactly 0.25 at every length --
+                        truncation is unbiased too, it only adds variance.
+    MeanAbsError        arrangement-weighted mean of |j/L - 0.25|.   <- THIS IS FIGURE 1's Y AXIS
+    MinEstimate         lowest j/L over all classes at this length
+    MaxEstimate         highest j/L over all classes at this length
+    Classes             number of hypergeometric classes summed. It is min(L,64) - max(0,L-192) + 1:
+                        it rises as L+1 while L is small, saturates at 65 once L reaches 64 (there
+                        are only 64 overlap cells to find), and falls back to 1 at L = 256, where
+                        the prefix is the whole stream and j can only be 64.
+    Log10Arrangements   151.52 -- log10 of C(256,128)^2, the arrangement count each row averages
+
+AND_Mul_poster_faults.csv  -- one row per (flip level, reachable outcome)
+    BitsFlipped         f, the number of injected flips (0..36)     <- FIGURE 2's X AXIS
+    OutputOnes          k, measured ones in the faulted output (0..256)
+    OutputFraction      k/256                                       <- FIGURE 2's Y AXIS
+    ErrorPerN           (k - 64)/256, the signed error
+    Probability         exact share of all trials at this f landing on k, from section 3.4
+    MC_Probability      the same share as MEASURED by 20,000 random trials (pass 2)
+    MC_Trials           20000, the random-trial count behind MC_Probability
+    LevelRealTrials     total real gate simulations run at this flip level (passes 1 + 2)
+    Log10TrialCount     log10 of the raw number of flip layouts reaching this outcome, i.e.
+                        log10(Probability * C(512,f)). It tops out at 54.42 -- the counts
+                        themselves overflow every integer type, hence log10. This is the column
+                        that shows the scale being stood in for: a single row can represent more
+                        individual trials than there are atoms in a planet.
+
+    Probability and MC_Probability each sum to 1.0 within a flip level. Comparing them column
+    against column is the agreement check of section 4.
+
+
+================================================================================================
+8. HONEST LIMITATIONS
+================================================================================================
+
+Stated plainly, since a poster should not overclaim:
+
+ -  ONE OPERAND PAIR. Everything here is 0.5 x 0.5. The unbiasedness result in section 6 follows
+    from OV and BO being equal in size, which is specific to this pair. At 0.9 x 0.9 the overlap
+    region dominates and faults WOULD be biased downward. That sweep is not in this figure.
+
+ -  UNIFORM RANDOM FLIP PLACEMENT. Flips are placed uniformly over the 512 bit positions and
+    treated as independent. Real single-event upsets cluster -- one particle strike can flip
+    several adjacent cells (a multi-bit upset) -- and a clustered model would change the tail
+    shape, though not the mean, since the region sizes are what force the symmetry.
+
+ -  FLIPS IN THE STREAMS ONLY. This models corruption of the operand bitstreams. It does not model
+    upsets in the bitstream generator, the LFSR/Sobol state, or the output accumulator. Those have
+    different signatures -- an upset in the RNG state corrupts every subsequent cycle rather than
+    one -- and belong to the uMUL half of this project, not to a bare AND gate.
+
+ -  ZERO-ERROR STARTING POINT. By construction every trial begins from an exactly correct 0.25.
+    Real inputs carry correlation error before any radiation arrives. Section 2 explains why that
+    separation is deliberate, but the figure should not be read as a total error budget.
+
+================================================================================================
