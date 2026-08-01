@@ -283,7 +283,8 @@ HEIGHT is the real measurement. It is the only tick whose spacing is not literal
 WHAT EACH MARK IS
     BLUE SPINE      the full reach of the answer, worst under-shoot to worst over-shoot
     BLUE CAPS       the exact extreme outcomes, measured by constructing those layouts
-    RED DASHES      the edges of the CENTRED interval holding at least 90% of trials
+    RED DASHES      the 5th and 95th percentiles -- an EQUAL-TAILED middle 90%, 5% of the
+                    trials cut from each end. Nothing forces it symmetric; see below.
     BLUE DOT        the trial-weighted mean
     RED DASHED LINE 0.25, the intended result
 
@@ -299,25 +300,39 @@ THE SPREAD GROWS AS sqrt(f). At 1 flip the reach is 0.246 to 0.254 (one output b
 single flip landing in OV (removing 32 ones) or every one landing in BO (adding 32). At the full
 f = 36 the CSV records 0.109375 and 0.390625, whose probabilities are 2.9e-27 and 3.2e-24.
 
-WHY THE 90% BAND IS CENTRED AND NOT NARROWEST
-    The first version used the NARROWEST interval containing 90% of the trials. That was subtly
-    wrong for this data. At 2 flips the centre three outcomes hold 87.6% -- just under target --
-    and extending one step gives 93.79% going low or 93.83% going high, for the SAME span width.
-    An effectively exact tie, resolved by whichever direction the scan happened to reach first,
-    which planted a visible leftward skew on the figure that does not exist in the data. On a
-    poster that reads as "faults bias the result downward", which is precisely the wrong
-    conclusion, and the opposite of what section 6's symmetry argument establishes.
+HOW THE 90% BAND IS DEFINED, AND THE TWO RULES THAT CAME BEFORE IT
+    The band is EQUAL-TAILED: cut 5% of the trials off each end and draw what is left, so the
+    lower dash is the 5th percentile and the upper the 95th. Measured coverage runs 0.9167 to
+    0.9316 rather than exactly 0.90, because the outcomes are discrete and the edge has to land
+    ON one; it is 1.0000 at f = 0, 1 and 2, where there are too few outcomes to carve 90% out of
+    at all. The .m prints the true coverage per level so the "90%" label is checked, not asserted.
 
-    The band is now grown SYMMETRICALLY outward from the outcome nearest the mean until it holds
-    90%. There is no tie to break, and the figure now says what the data says: the middle 90% of
-    answers sits centred on 0.25.
+    RULE 1, DISCARDED -- NARROWEST INTERVAL HOLDING 90%. Subtly wrong for this data. At 2 flips
+    the centre three outcomes hold 87.6%, just under target, and extending one step gives 93.79%
+    going low or 93.83% going high for the SAME span width. An effectively exact tie, resolved by
+    whichever direction the scan reached first, which planted a visible leftward skew that does
+    not exist in the data. On a poster that reads as "faults bias the result downward", the exact
+    opposite of what section 6's symmetry argument establishes.
+
+    RULE 2, DISCARDED -- SYMMETRIC ABOUT THE MEAN, the narrowest [mean - d, mean + d] holding
+    90%. It has no tie to break, and for the AND gate it gives the right answer. But it BUILDS IN
+    the symmetry instead of measuring it, so it cannot be trusted to report asymmetry when
+    asymmetry is real. In the uMUL twin it is: a value-register hit puts an outcome at 0.000
+    while the high side only reaches 0.375, and forcing the window symmetric dragged the high
+    edge out to match the low one, claiming reach on the high side that no comparable share of
+    trials occupies.
+
+    EQUAL-TAILED ASSUMES NOTHING ABOUT SHAPE, which is why both scripts now use it. For the AND
+    gate the numbers barely move -- only f = 16's upper edge, from 0.265625 to 0.269531 -- and
+    that is the useful part: this distribution's symmetry now stands as a MEASUREMENT rather than
+    as a consequence of how the band was drawn.
 
 WHY RED IS ABSENT AT 0, 1 AND 2 FLIPS
     Those levels have only 1, 3 and 5 reachable outcomes. Ninety percent of the trials cannot be
-    carved out of a set that small -- the centred band swallows the entire range -- so the red
-    dashes would land exactly on the blue caps. Drawing them there implies a distinction that does
-    not exist and makes the low end look broken. They are suppressed by an explicit test
-    (bLo > mn || bHi < mx) and their absence is documented here rather than hidden.
+    carved out of a set that small -- the band swallows the entire range, coverage 1.0000 -- so
+    the red dashes would land exactly on the blue caps. Drawing them there implies a distinction
+    that does not exist and makes the low end look broken. They are suppressed by an explicit
+    test (bLo > mn || bHi < mx) and their absence is documented here rather than hidden.
 
 CAP WIDTHS ARE MULTIPLICATIVE (x/1.055 to x*1.055 for blue, 1.075 for red) so that every cap
 renders the same visual width at every tick on a log axis. An additive half-width would look

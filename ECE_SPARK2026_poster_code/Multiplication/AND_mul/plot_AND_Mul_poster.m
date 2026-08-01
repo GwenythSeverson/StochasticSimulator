@@ -24,10 +24,12 @@
 %                every flip landing where it adds one. Those two tips carry probabilities near
 %                1e-21, so 20,000 random trials would never land on them -- they are found by
 %                constructing the layout and running it, which is why the caps are exact.
-%   RED DASHES   the CENTRED interval holding at least 90% of trials -- a symmetric window grown
-%                outward from the mean. Drawn only where it is a proper subset of the blue: at
-%                0, 1 and 2 flips there are only 1, 3 and 5 reachable outcomes, so 90% cannot be
-%                separated from 100% and the dashes would sit on the caps.
+%   RED DASHES   the EQUAL-TAILED middle 90%: the 5th and 95th percentiles, with 5% of trials
+%                cut from each end. Nothing forces it symmetric -- it comes out symmetric here
+%                because this distribution IS symmetric, which is a measurement rather than an
+%                assumption. Drawn only where it is a proper subset of the blue: at 0, 1 and 2
+%                flips there are only 1, 3 and 5 reachable outcomes, so 90% cannot be separated
+%                from 100% and the dashes would sit on the caps.
 %   BLUE DOT     the trial-weighted mean.
 %
 % ------------------------------------------------------------------------------------------
@@ -59,7 +61,7 @@ end
 
 TARGET     = 0.25;
 SHOW_FLIPS = [0 1 2 4 8 16 32];  % the x positions requested, on a log axis
-BAND_MASS  = 0.90;               % centred red band covers at least this much of the trials
+TAIL       = 0.05;               % cut this much off EACH end -> red band is the middle 90%
 
 %% ---------------------------------------------------------------------------------------
 %% Load
@@ -88,59 +90,65 @@ fprintf('Trials  : %s real gate simulations (%s random per flip level)\n', ...
         commafy(realRuns), commafy(mcPerLevel));
 fprintf('Check   : worst enumerated-vs-random probability gap = %.4f\n', mcGap);
 
-%% CENTRED interval containing at least BAND_MASS of the trials, per flip level.
-%
-% Grows a symmetric window outward from the outcome nearest the mean until it holds 90% of the
-% trials. Symmetric by construction, which is the point: the band is meant to say "this is where
-% the middle 90% of answers land", and a lopsided one invites the reader to see a bias that is
-% not there.
-%
-% THIS REPLACED A "NARROWEST INTERVAL" RULE, which was subtly wrong for this data. At 2 flips the
-% centre three outcomes hold 87.6% -- just under target -- and extending one step either way gives
-% 93.79% (low side) or 93.83% (high side) for the SAME span. An exact tie, resolved by whichever
-% the scan happened to reach first, which planted a fake leftward skew on the figure. Growing
-% symmetrically has no tie to break.
 % 748214 -> "748,214". Trial counts on a poster are unreadable without the separators.
 function s = commafy(n)
     s = fliplr(regexprep(fliplr(sprintf('%d', round(n))), '(\d{3})(?=\d)', '$1,'));
 end
 
-function [lo, hi] = centred_band(vals, probs, mass)
+%% EQUAL-TAILED band: cut TAIL of the trials off each end, keep the middle, per flip level.
+%
+% The lower edge is the 5th percentile, the upper edge the 95th, so 45% of the trials sit between
+% each edge and the median. The band is NOT forced to be symmetric.
+%
+% THIS REPLACED TWO EARLIER RULES, and the history is worth keeping because both were wrong in
+% instructive ways.
+%
+%   (1) NARROWEST INTERVAL HOLDING 90%. Subtly wrong for this data. At 2 flips the centre three
+%       outcomes hold 87.6% -- just under target -- and extending one step either way gives
+%       93.79% (low) or 93.83% (high) for the SAME span. An effectively exact tie, resolved by
+%       whichever direction the scan reached first, which planted a fake leftward skew.
+%
+%   (2) SYMMETRIC ABOUT THE MEAN, i.e. the narrowest [mean - d, mean + d] holding 90%. That has
+%       no tie to break, and for the AND gate it is harmless because this distribution really is
+%       symmetric. But it BUILDS IN the symmetry rather than measuring it, so it cannot be
+%       trusted to report asymmetry when asymmetry is there -- and in the uMUL twin it is: a
+%       value-register hit puts an outcome at 0.000 while the high side only reaches 0.375, and
+%       the symmetric rule dragged the high edge out to match the low one, describing a symmetry
+%       the hardware does not have.
+%
+% Equal-tailed assumes nothing about shape. Written identically in both scripts so the two
+% figures use one estimator rather than two. For the AND gate the numbers barely move -- which
+% is itself the useful check that this distribution's symmetry is real and not an artifact of
+% how the band was drawn.
+function [lo, hi] = tail_band(vals, probs, tail)
     [vals, ord] = sort(vals);
     probs = probs(ord);
     probs = probs / sum(probs);
-    n = numel(vals);
-    mu = sum(vals .* probs);
-    [~, c] = min(abs(vals - mu));      % start at the outcome closest to the mean
-    r = 0;
-    while true
-        i = max(1, c - r);
-        j = min(n, c + r);
-        if sum(probs(i:j)) >= mass || (i == 1 && j == n), break; end
-        r = r + 1;
-    end
-    lo = vals(max(1, c - r));
-    hi = vals(min(n, c + r));
+    lo = vals(find(cumsum(probs) >= tail, 1));                    % 5th percentile
+    hi = vals(find(cumsum(probs, 'reverse') >= tail, 1, 'last')); % 95th percentile
 end
 
 flipLevels = unique(F.BitsFlipped);
 nf = numel(flipLevels);
 mn = zeros(nf,1); mx = zeros(nf,1); mu = zeros(nf,1);
-bLo = zeros(nf,1); bHi = zeros(nf,1);
+bLo = zeros(nf,1); bHi = zeros(nf,1); cov = zeros(nf,1);
 for k = 1:nf
     sel = F.BitsFlipped == flipLevels(k);
     v = F.OutputFraction(sel);
     p = F.Probability(sel);
     p = p / sum(p);
     mn(k) = min(v);  mx(k) = max(v);  mu(k) = sum(v .* p);
-    [bLo(k), bHi(k)] = centred_band(v, p, BAND_MASS);
+    [bLo(k), bHi(k)] = tail_band(v, p, TAIL);
+    % True coverage of the drawn band, so the "90%" claim on the figure is checked rather than
+    % asserted. Discrete outcomes mean the edges land ON a value, so coverage runs a little over.
+    cov(k) = sum(p(v >= bLo(k) & v <= bHi(k)));
 end
 
-fprintf('\n  flips     mean      min       max     90%% band low   90%% band high\n');
+fprintf('\n  flips     mean      min       max      5th pct       95th pct    coverage\n');
 for k = 1:nf
     if ismember(flipLevels(k), SHOW_FLIPS)
-        fprintf('  %5d  %8.6f  %8.6f  %8.6f  %13.6f  %14.6f\n', ...
-                flipLevels(k), mu(k), mn(k), mx(k), bLo(k), bHi(k));
+        fprintf('  %5d  %8.6f  %8.6f  %8.6f  %11.6f  %13.6f  %9.4f\n', ...
+                flipLevels(k), mu(k), mn(k), mx(k), bLo(k), bHi(k), cov(k));
     end
 end
 
@@ -263,7 +271,7 @@ pRed  = plot(ax2, NaN, NaN, '-', 'Color', RED,  'LineWidth', 2.4);
 hold(ax2, 'off');
 lg = legend(ax2, [pBlue pRed hMean], ...
        {'full error reach, caps = measured extremes', ...
-        sprintf('centred %d%% of trials (dashes)', round(BAND_MASS*100)), ...
+        sprintf('middle %d%% of trials, 5th-95th pct (dashes)', round((1-2*TAIL)*100)), ...
         'trial-weighted mean'}, 'Location', 'northwest', 'FontSize', 11);
 lg.Box = 'on';
 ax2.Toolbar.Visible = 'off';
