@@ -1,0 +1,848 @@
+﻿================================================================================================
+HOW THIS DATA WAS MADE                                    ECE SPARK 2026 -- uMUL multiplier
+================================================================================================
+
+Twin of AND_mul/HOW_THIS_DATA_WAS_MADE.txt. Same operands, same axes, same exhaustiveness
+standard, so the two pairs of figures can be placed side by side and read against each other.
+
+This file explains: what is being simulated, what algorithm produced each number, why each
+choice was made over the alternatives, a STEP-BY-STEP LEDGER OF HOW MANY TRIALS EACH DECISION
+COSTS OR SAVES (section 4), and exactly what each mark on each figure represents.
+
+FILES IN THIS FOLDER
+    uMUL_poster.cpp             generates all three CSVs. One source file, a GoogleTest case.
+    uMUL_poster_warmup.csv      figure 1 data -- zero-fault early termination
+    uMUL_poster_faults.csv      figure 2 and 3 data -- fault response, 0..36 flipped bits
+    uMUL_poster_sensitivity.csv figure 3 data -- exact single-flip damage per operand site
+    plot_uMUL_poster.m          reads all three CSVs, writes all four PNGs. One script.
+    uMUL_poster_warmup.png      figure 1  -- what early termination costs
+    uMUL_poster_faults_intact.png    figure 2 -- fault response, OPERAND INTACT (no register bit
+                                                struck). Expanded y scale, 0.15 to 0.35.
+    uMUL_poster_faults_damaged.png   figure 3 -- fault response, OPERAND DAMAGED (>= 1 register
+                                                bit struck). Full y scale, 0 to 0.70.
+    uMUL_poster_register.png    figure 4  -- the 8-bit operand register expanded: where the
+                                             damage in figure 3 comes from.
+
+    FIGURES 2 AND 3 ARE THE SAME SWEEP, SPLIT. They are deliberately not one plot; section 6e
+    explains why merging them puts a discontinuity in the summary statistic that is not in the
+    hardware. Note their DIFFERENT VERTICAL SCALES, stated in both subtitles.
+
+    EVERYTHING HERE IS MEASURED, AND EVERYTHING HERE IS ENVIRONMENT-AGNOSTIC. Every number comes
+    from clocking real streams through a real UnaryMultiplier, and the x axis throughout is
+    BITS FLIPPED -- not an upset rate, not an orbit, not a mission duration. What is characterised
+    is how the circuit RESPONDS to a given number of upsets, which is a property of the circuit
+    and holds whatever caused them.
+
+    THAT SEPARATION IS DELIBERATE, and it is the same one radiation_model.hpp sets out: the
+    expected error is (rate) x (sum over sites of the error given one upset there), and "that sum
+    is a property of the CIRCUIT, not the orbit. Characterize it once exhaustively, and every
+    orbit, shielding and clock-rate question becomes arithmetic."
+
+    This folder is that exhaustive characterisation. Multiplying it by a LEO or GEO upset rate is
+    a SEPARATE, LATER step, and nothing in this folder does it or depends on it.
+
+TO REGENERATE
+    stochastic_computer.exe --gtest_filter=uMULPoster.*        (about 8 seconds)
+    then run plot_uMUL_poster.m in MATLAB
+Both write only into this folder. The .cpp locates itself with __FILE__, so it does not matter
+what directory the test binary is launched from. Seeded with std::mt19937 rng(1337): every
+number reproduces byte for byte on re-run.
+
+
+================================================================================================
+1. WHAT IS BEING SIMULATED, AND HOW IT DIFFERS FROM THE AND GATE
+================================================================================================
+
+uMUL is the unary multiplier of uGEMM figure 3(a), unipolar, in the form that was actually
+synthesized (hw/kernel/.../uMUL_uni.sv: ports iA, iB, loadB; oC <= iA & (iB_buf > sobolSeq)).
+One clock cycle:
+
+     in_0 ---------------------------+-----------------,
+                                     |                  )-- out       (2) AND
+                                  (enable)          ,--'
+                                     v              |
+     in_1 --> [ value register ] ==bin==> [ bit stream generator ]    (1) conditional bs gen
+              (loaded once, 8 bits)        comparator: value > sobol[index]
+
+     index++ happens ONLY on cycles where in_0 == 1.
+
+THE OPERANDS HERE
+    in_0 = 0.5 as a 256-bit unary STREAM        128 ones out of 256 bits
+    in_1 = 0.5 as an 8-bit BINARY REGISTER      value 128 out of 256
+    product 0.25                                64 output ones out of 256
+
+THE ARCHITECTURAL POINT. The AND gate next door holds BOTH operands as 256-bit unary streams:
+512 bits of operand storage, every bit worth 1/256 of the answer. uMUL holds one stream and one
+8-bit register: 264 bits, of which 8 carry half the arithmetic. That concentration is exactly
+where uMUL's accuracy comes from -- a register is an exact number while a unary stream is only
+a sample of one -- and it is also exactly what figure 2 measures the cost of.
+
+WHY 0.5 x 0.5, WHY N = 256, WHY WIDTH 8. The first two match the AND-gate file so the figures
+are comparable; see that file's section 1. Width 8 is uMUL_uni.sv's own iB width, and at N = 256
+it is also the minimum the RNG needs -- width_for_stream_length(256) = ceil(log2(256)) = 8 --
+so the Sobol sequence covers the run without wrapping. It is the RTL's configuration, not a
+convenient one.
+
+
+================================================================================================
+2. NO FILTER IS NEEDED HERE, AND THAT IS ALREADY A RESULT
+================================================================================================
+
+The AND-gate file has to DISCARD operand pairs. Two arbitrary 256-bit streams both valued 0.5 do
+not multiply to 0.25; they multiply to whatever their overlap happens to be, anywhere from 0 to
+0.5. Only the pairs the gate puts at exactly 64/256 are kept. That discarding IS the correlation
+problem, and it is the thing uMUL was designed to remove.
+
+uMUL removes it. Every one of the C(256,128) = 5.7687e75 arrangements of in_0 gives exactly 64
+output ones. The reason is the enable. Because the RNG index advances only on cycles where in_0
+is 1, the enabled cycles consume Sobol points 0, 1, 2, ... n1-1 IN ORDER, where n1 is simply the
+NUMBER of ones in in_0. Where those ones sit is never consulted by anything. Therefore
+
+    output ones  =  G(value, n1)  =  #{ j < n1 : value > sobol[j] }
+
+a function of two integers and nothing else.
+
+THIS IS A STRONGER COLLAPSE THAN THE AND GATE'S. There, the collapse was over flip POSITIONS,
+and the operand pair still had to be filtered. Here the entire 5.7687e75-arrangement operand
+space collapses onto a single number, n1, before any fault is injected at all.
+
+G IS MEASURED, NEVER DERIVED. Every G(value, n1) in this file is obtained by building a real
+256-bit in_0 stream carrying n1 ones in a random arrangement, loading the real value register,
+and clocking a real UnaryMultiplier 256 times. Each distinct (value, n1) is measured on
+INSTANCES_PER_CLASS = 4 independently shuffled arrangements and the four results are asserted
+equal. That assertion is the collapse claim: if position could matter, four random shuffles
+would catch it.
+
+
+================================================================================================
+3. THE FAULT SURFACE -- 264 BITS, AND WHY EXACTLY THOSE 264
+================================================================================================
+
+3.1 WHAT IS SWEPT
+-----------------
+Flips are injected into the OPERAND STORAGE, the direct counterpart of the AND gate's two
+operand streams:
+
+    in_0 stream        256 bits    flipping one toggles whether that cycle enables, so
+                                   n1 -> n1 +/- 1 and the answer moves by at most 1/256
+    value register       8 bits    flipping one changes the operand for the WHOLE run
+    ----------------------------
+    total              264 bits
+
+Both are STATIC for the duration of a run, and that is what preserves the collapse: a faulted
+run is still G(value', n1'), just with a different pair of integers. That is the entire reason
+this sweep can be exhaustive rather than sampled.
+
+3.2 WHAT IS DELIBERATELY NOT SWEPT, AND WHY
+-------------------------------------------
+uMUL's full radiation cross-section is 3w + 2 = 26 site types (see uMUL.hpp): the value
+register, the rng_index register, the RNG output bus, the enable wire and the output wire. Only
+the first is included above, alongside the in_0 stream. The others are excluded on a stated
+principle, not for convenience:
+
+  - rng_index register (8 bits) -- an upset here is TIME-DEPENDENT. Hitting it at cycle t leaves
+    the enabled cycles before t untouched and permanently offsets every one after. The result
+    therefore depends on (bit, t, arrangement), not on a pair of integers, so the collapse of
+    section 2 does not apply and the class count explodes. Concretely: including it would make
+    the state (value', start_index, n1') and the enumeration would need 256 x 256 x 73 = 4.8e6
+    states instead of 18,688 -- and that is still only for a pre-run corruption, which is the
+    wrong model anyway, because reset() clears rng_index at the start of every multiply.
+
+  - RNG output bus, enable wire, output wire -- transient, one cycle each, so their sites are
+    bit-CYCLES rather than bits: 8x256 + 1x256 + 1x256 = 2560 additional exposure sites per run,
+    none of which collapse.
+
+  Including any of them would force this file to become a sampler, and the entire value of the
+  AND-gate twin is that it is not one. They are listed again in section 9 as limitations.
+
+  Note that an enable-wire glitch and an in_0 stream flip are the SAME event electrically -- one
+  wire feeds both the AND gate and the index register -- so the in_0 stream row above already
+  covers the enable wire's per-cycle exposure. Nothing is double counted.
+
+3.3 THE 8 REGISTER BITS ARE NOT LIKE THE 256 STREAM BITS
+--------------------------------------------------------
+This table is printed by the .cpp at run time, and every row is a measured gate run:
+
+    healthy                                     64/256 = 0.250000
+    flip value bit 7   value 128 ->   0          0/256 = 0.000000   delta -0.250000
+    flip value bit 6   value 128 -> 192         96/256 = 0.375000   delta +0.125000
+    flip value bit 5   value 128 -> 160         80/256 = 0.312500   delta +0.062500
+    flip value bit 4   value 128 -> 144         72/256 = 0.281250   delta +0.031250
+    flip value bit 3   value 128 -> 136         68/256 = 0.265625   delta +0.015625
+    flip value bit 2   value 128 -> 132         66/256 = 0.257812   delta +0.007812
+    flip value bit 1   value 128 -> 130         65/256 = 0.253906   delta +0.003906
+    flip value bit 0   value 128 -> 129         65/256 = 0.253906   delta +0.003906
+    flip ONE stream bit (128 -> 127 or 129 ones)  63 or 65 /256      delta +/- 0.003906
+
+Read the top and bottom rows together. ONE upset in value bit 7 destroys the answer outright --
+the operand becomes 0, the strict ">" comparator can never fire, and the output is a hard zero.
+ONE upset anywhere in the 256-bit stream cannot move the answer past 1/256. Eight of the 264
+bits carry essentially all of the risk, and they are 3.03% of the surface.
+
+That is the figure. It is also the honest counterweight to uMUL's accuracy advantage, and it is
+the reason both units are worth keeping side by side rather than declaring a winner.
+
+
+================================================================================================
+4. THE TRIAL LEDGER -- HOW MANY TRIALS EACH DECISION COSTS OR SAVES
+================================================================================================
+
+This section is the step-by-step arithmetic. Start from the literal experiment and follow each
+decision, carrying the running trial count.
+
+STEP 0 -- THE LITERAL EXPERIMENT
+--------------------------------
+"Every 256-bit representation of 0.5, against the 0.5 operand, with every possible layout of
+0 to 36 flipped bits across the operand storage."
+
+    in_0 arrangements                C(256,128)              = 5.7687e75
+    flip layouts, 0..36, on 264 bits SUM_{f=0..36} C(264,f)  = 3.9334e44
+    -----------------------------------------------------------------------
+    TOTAL LITERAL TRIALS             product                 = 2.269e120
+
+    (the AND gate's equivalent is C(256,128)^2 x SUM C(512,f) = 10^206.97, so uMUL's literal
+     space is smaller by 87 orders of magnitude -- and still 10^40 times past any computer)
+
+10^120 is not "slow". The observable universe holds about 10^80 atoms. Every decision below is
+an argument for why a specific factor may be removed without approximating anything.
+
+STEP 1 -- FIX THE OPERAND PAIR AT 0.5 x 0.5.               DIVIDE BY: the operand sweep
+    A scope decision, not a compression: the poster asks what faults do to ONE multiplication,
+    and 0.5 x 0.5 is the maximum-entropy, mid-scale case. Cost: the results are specific to this
+    pair. See section 9.
+    RUNNING TOTAL: 2.269e120 trials.
+
+STEP 2 -- COLLAPSE THE ARRANGEMENT SPACE.                  DIVIDE BY: 5.7687e75
+    Justified in section 2: the output is G(value, n1) and n1 is a count, so all C(256,128)
+    arrangements with the same ones-count are literally the same experiment. This is lossless
+    -- not a sample, not an approximation. The 5.7687e75 arrangements collapse to ONE per
+    ones-count value.
+    RUNNING TOTAL: 3.9334e44 flip layouts.
+
+STEP 3 -- COLLAPSE THE FLIP LAYOUTS BY OUTCOME CLASS.      DIVIDE BY: about 2.7e39
+    A layout of f flips is fully described, as far as the output is concerned, by three numbers:
+
+        r  how many of the 8 register bits were hit -- and WHICH, so the specific SUBSET S,
+           because each subset gives its own faulted operand  value' = 128 XOR mask(S)
+        a  how many stream flips landed on a cycle that held a one   (that cycle stops enabling)
+        b  how many landed on a cycle that held a zero               (that cycle starts enabling)
+
+    with r + a + b = f, giving n1' = 128 - a + b. Every layout with the same (S, a) produces the
+    same answer. The number of layouts in that class is exactly
+
+        ways(S, a, b) = C(128, a) * C(128, b)
+
+    and the class count at flip level f is
+
+        classes(f) = SUM_{r=0..min(8,f)} C(8,r) * (f - r + 1)
+
+    Measured against the code, which prints these: f=1 -> 10, f=2 -> 47, f=3 -> 140, f=4 -> 303,
+    f=8 -> 1280, f=16 -> 3328, f=32 -> 7424, f=36 -> 8448. Summed over f = 0..36: 143,872.
+
+    THE ARITHMETIC GUARANTEE. Nothing is double counted and nothing is missed, by Vandermonde:
+
+        SUM_r C(8,r) * SUM_a C(128,a)*C(128,f-r-a)  =  SUM_r C(8,r)*C(256,f-r)  =  C(264,f)
+
+    The .cpp ASSERTS this at every flip level (EXPECT_NEAR(wsum, 1.0, 1e-9)), so a broken
+    enumeration fails the build rather than shipping a wrong figure.
+    RUNNING TOTAL: 143,872 outcome classes.
+
+STEP 4 -- MEMOISE ON (value, n1).                          DIVIDE BY: about 8.6
+    Many of those 143,872 classes land on the same STATE. The state is the pair (value', n1'),
+    with value' in [0,256) and n1' in [92,164] -- 73 reachable ones-counts, since 36 flips move
+    n1 by at most 36 in either direction. So at most 256 x 73 = 18,688 states exist, and the run
+    actually reaches 16,732 of them. A state measured at f = 4 costs nothing again at f = 36.
+    RUNNING TOTAL: 16,732 distinct states to measure.
+
+STEP 5 -- MEASURE EACH STATE 4 TIMES.                      MULTIPLY BY: 4
+    INSTANCES_PER_CLASS = 4. Each state is built as a real 256-bit stream on an INDEPENDENTLY
+    SHUFFLED arrangement, run through a real UnaryMultiplier, and the four results asserted
+    equal. One run would be enough IF the collapse argument is right; four runs are what TESTS
+    that it is right. Four was chosen as enough to break any accidental alignment in a single
+    arrangement without making the sweep slow.
+    SUBTOTAL: 16,732 x 4 = 66,928 real gate simulations.
+
+STEP 6 -- ADD FORWARD MONTE CARLO.                         ADD: 740,000
+    Steps 2-5 prove each outcome is reachable and stable. They do NOT prove the WEIGHTS from
+    step 3 are right, because they visit each state once regardless of how likely it is. So
+    MC_TRIALS_PER_FLIP = 20,000 genuinely random trials run at each of the 37 flip levels:
+    draw a fresh random in_0 with 128 ones, pick f of the 264 sites uniformly at random (partial
+    Fisher-Yates, so no site twice), toggle stream bits and XOR register bits for real, clock the
+    whole thing through. Nothing is steered toward a class.
+    SUBTOTAL: 37 x 20,000 = 740,000 real gate simulations.
+
+STEP 7 -- FOLD IN THE WARM-UP AND THE SENSITIVITY TABLE.   ADD: 138 states
+    Figure 1's truncation classes and section 3.3's table use the same G() primitive and share
+    the same memo, so they are not a separate cost. 16,594 of the 16,732 states are first reached
+    by the fault sweep; the warm-up and the sensitivity table contribute only 138 more.
+
+FINAL LEDGER
+    literal experiment                       2.269e120  trials
+    after collapsing arrangements (step 2)   3.9334e44  flip layouts
+    after collapsing layouts by class (3)      143,872  outcome classes
+    after memoising on (value, n1) (4, 7)       16,732  distinct states
+                                                        = 16,594 from the fault sweep
+                                                        +    138 from warm-up + sensitivity
+    x 4 shuffled instances each (step 5)        66,928  real gate simulations
+    + forward Monte Carlo (step 6)             740,000  real gate simulations
+    ------------------------------------------------------------------------
+    TOTAL ACTUALLY RUN                         806,928  real 256-cycle gate simulations
+                                                        (206,573,568 clock cycles)
+    COMPRESSION vs the literal experiment      2.8e114 : 1, with no approximation anywhere
+
+    Cross-check on the ledger: 4 x 16,732 + 740,000 = 806,928, which is the figure the .cpp
+    prints. The per-level LevelRealTrials column sums to 806,376 -- the same number less the 552
+    runs spent on the 138 states measured before the fault loop starts.
+
+    Runtime: about 8 seconds.
+
+WHAT THE 806,928 BUYS THAT THE 2.269e120 WOULD NOT
+    Nothing. That is the claim, and steps 2-4 are the proof of it. Every one of the 2.269e120
+    literal trials is bit-for-bit identical to one of the 16,732 measured states, and the exact
+    number of literal trials mapping onto each is carried in the CSV.
+
+
+================================================================================================
+5. FIGURE 1 -- ZERO-FAULT EARLY TERMINATION      (uMUL_poster_warmup.csv/.png)
+================================================================================================
+
+THE QUESTION. With no faults at all, how wrong is the answer if you stop the stream early?
+
+THE ALGORITHM. Truncating at cycle L asks one question: how many ones of in_0 landed in the
+first L cycles? Call it n. The enabled cycles inside the prefix are the FIRST n enabled cycles
+of the run, so they consume Sobol points 0..n-1 and the prefix output is G(value, n) -- the same
+measured primitive as everywhere else. Across all C(256,128) arrangements, n is a HYPERGEOMETRIC
+draw, choosing L of 256 positions when 128 of them are ones:
+
+    P(n ones in the first L) = C(128,n) * C(128,L-n) / C(256,L)
+
+Summing over n is the exact average over all 5.7687e75 arrangements in at most L+1 terms.
+262 classes cover the whole space; the trial ledger for this half is 262 classes -> at most 129
+distinct (128, n) states -> 4 runs each, most of them shared with the fault sweep.
+
+THE MEASURED CURVE
+    L          2        4        8       16       32       64      128      256
+    MeanAbsErr 0.2500   0.0305   0.0911   0.0552   0.0353   0.0224   0.0128   0.0000
+    AND gate   0.2809   0.1570   0.1150   0.0818   0.0565   0.0372   0.0215   0.0000
+    ratio      0.89     0.19     0.79     0.67     0.62     0.60     0.60     --
+
+uMUL IS ABOUT 40% BETTER FROM L = 8 ONWARD, and the gap widens. The reason is structural: the
+AND gate's prefix estimate is the OVERLAP of two streams, a random draw from 64 overlap cells,
+while uMUL's is G of a single stream's prefix count, and G advances by one roughly every two
+ones. Halving the quantity that fluctuates halves the fluctuation.
+
+THE CURVE IS NOT MONOTONE, AND THAT IS REAL, NOT NOISE
+    L = 4 (0.0305) beats L = 8 (0.0911). Nothing is being sampled here, so this cannot be
+    sampling error. The cause is the Sobol sequence's Gray-code ordering. SobolRNG::value_at
+    computes gray = index XOR (index >> 1) and then XORs direction vectors, so for dimension 1
+    the emitted sequence at width 8 begins
+
+        index    0    1    2    3    4    5    6    7
+        sobol    0  128  192   64   96  224  160   32
+
+    and the running count of points below 128, which is G(128, n), goes
+
+        n        0    1    2    3    4    5    6    7    8
+        G        0    1    1    1    2    3    3    3    4
+
+    G is exact at every multiple of 4 -- G(128, 4m) = 2m -- and lopsided in between. At L = 4
+    every reachable prefix count n = 1, 2, 3 gives G = 1, i.e. exactly 1/4 = 0.25, so only the
+    two end classes n = 0 and n = 4 contribute any error at all. That is a genuine alignment
+    between the truncation point and the low-discrepancy sequence, not a fluke. At L = 8 the
+    n = 1,2,3 classes give 1/8 = 0.125, off by 0.125, and the error jumps.
+
+    From L = 8 onward the curve is clean and monotone, and it falls FASTER than the classic
+    1/sqrt(L) law: the successive ratios are 1.65, 1.56, 1.58, 1.75 against sqrt(2) = 1.414.
+    That is the low-discrepancy sequence doing its job -- a Sobol prefix is evenly spread by
+    construction, while a random-sampling prefix is a random walk.
+
+    L = 2 IS BIASED HIGH, at MeanEstimate = 0.3755 rather than 0.25. With at most one enabled
+    cycle in the prefix and the first Sobol point equal to 0, the comparator 128 > 0 fires and
+    the estimate is 1/2. The unit has no way to express 0.25 from a 2-cycle window. This is a
+    quantisation floor, not an error in the model.
+
+MinEstimate and MaxEstimate in the CSV read 0.0 and 0.5 for the short lengths. Real, and not
+plotted: at short L they only say "the extremes are the whole range", and drawing them would
+flatten the curve that is the point of the figure.
+
+
+================================================================================================
+6. FIGURE 2 -- FAULT RESPONSE                    (uMUL_poster_faults.csv/.png)
+================================================================================================
+
+THE QUESTION. Given a multiplication that was exactly correct, what does radiation damage to
+the operand storage do to it? X is flips over the 264-bit surface; Y is the output fraction.
+Plotted ticks are 0, 1, 2, 4, 8, 16, 32 on a LOG x axis; zero is drawn at x = 0.5 and labelled
+"0", since log(0) does not exist -- its position is cosmetic, its height real.
+
+WHAT EACH MARK IS
+    BLUE SPINE      the full reach of the answer, worst under-shoot to worst over-shoot
+    BLUE CAPS       the exact extreme outcomes, measured by constructing those layouts
+    RED DASHES      the 5th and 95th percentiles -- an EQUAL-TAILED middle 90%, 5% of the
+                    trials cut from each end. NOT forced symmetric; see below.
+    BLUE DOT        the trial-weighted mean
+    RED DASHED LINE 0.25, the intended result
+
+THE 90% BAND MUST NOT BE FORCED SYMMETRIC, AND THIS IS WHERE THAT MATTERS
+    An earlier version of both scripts drew the narrowest window [mean - d, mean + d] holding
+    90%. For the AND gate that is harmless, because its distribution really is symmetric. For
+    uMUL it is actively misleading. The two sides are not equally reachable: flipping value bit 7
+    zeroes the operand and puts an outcome at 0.000, while at one flip the high side only reaches
+    0.375. Forcing the window symmetric let the low edge drag the high edge out with it, and the
+    figure then claimed reach on the high side that no comparable share of trials occupies. At 32
+    flips the symmetric rule reported 0.055 to 0.445; the truth is 0.004 to 0.387.
+
+    The band is now EQUAL-TAILED -- 5% cut from each end, edges at the 5th and 95th percentiles
+    -- which assumes nothing about shape and lets the lopsidedness show. Measured coverage runs
+    0.9027 to 0.9773 rather than exactly 0.90, because the outcomes are discrete and an edge has
+    to land ON one; it is 1.0000 only at f = 0, where there is a single outcome. The .m prints
+    the true coverage per level so the "90%" label is checked, not asserted.
+
+    The zero outcome is not hidden by this. At one flip it is 1 site in 264 = 0.38% of trials,
+    well inside the 5% tail, so it belongs OUTSIDE a 90% band and INSIDE the blue spine -- which
+    is exactly where the figure puts it. Rare and catastrophic is precisely the claim.
+
+THE MEASURED NUMBERS
+    flips    mean       min       max      5th pct  95th pct  coverage  P(register hit)
+        0    0.250000   0.250000  0.250000 0.250000  0.250000  1.0000       0.0000
+        1    0.250000   0.000000  0.375000 0.246094  0.253906  0.9773       0.0303
+        2    0.250000   0.000000  0.437500 0.246094  0.253906  0.9513       0.0598
+        4    0.250000   0.000000  0.484375 0.242188  0.269531  0.9385       0.1164
+        8    0.249999   0.000000  0.503906 0.238281  0.308594  0.9218       0.2209
+       16    0.249996   0.000000  0.535156 0.019531  0.367188  0.9069       0.3978
+       32    0.249985   0.000000  0.597656 0.003906  0.386719  0.9027       0.6496
+       36    0.249982   0.000000  0.613281                                  0.6958
+
+READ THE FIRST ROW AFTER ZERO. At ONE flip the AND gate spans 0.246 to 0.254. uMUL spans 0.000
+to 0.375. One upset, and the answer can already be anything from nothing to half again too big.
+
+READ THE 90% BAND AGAINST IT. At one flip that band is 0.246 to 0.254 -- identical to the AND
+gate's. The catastrophic outcomes are real and they are reachable, but they are 8 sites out of
+264, so 97% of single upsets are ordinary stream flips worth 1/256. uMUL FAILS RARELY AND
+CATASTROPHICALLY; the AND gate fails constantly and negligibly. That single sentence is what the
+two figure 2s are for.
+
+THE BAND GOES LOPSIDED AS THE REGISTER GETS HIT, and the asymmetry is the interesting part.
+P(register hit) = 1 - C(256,f)/C(264,f) passes 50% between 16 and 32 flips. Track the two edges
+separately as it climbs:
+
+    flips     low edge   distance below 0.25      high edge   distance above 0.25
+        1     0.246094   0.0039                   0.253906    0.0039     symmetric
+        4     0.242188   0.0078                   0.269531    0.0195     2.5 : 1
+        8     0.238281   0.0117                   0.308594    0.0586     5.0 : 1
+       16     0.019531   0.2305                   0.367188    0.1172     0.5 : 1
+       32     0.003906   0.2461                   0.386719    0.1367     0.6 : 1
+
+    Through f = 8 the band leans HIGH: a few register bits set push the operand up, and the low
+    side is still just stream flips. Past f = 16 it flips hard the other way -- the low edge
+    collapses to almost zero while the high edge barely moves. The reason is arithmetic, not
+    statistical: zero is ONE operand value that many different flip patterns reach (any pattern
+    clearing every set bit), whereas driving the operand to full scale needs one specific rare
+    pattern. A symmetric band cannot express either regime.
+
+    By f = 32 the band spans 0.004 to 0.387, which is wider than the AND gate's FULL reach at the
+    same flip count (0.125 to 0.375). Past that point a corrupted operand is the normal case.
+
+THE LOW EDGE JUMPS BETWEEN f = 13 AND f = 14. THE HARDWARE DOES NOT.
+    This is the most misreadable feature of figure 2, so it is worth stating flatly: there is no
+    cliff in the multiplier at 14 flips. The cliff is in the STATISTIC, and it is a property of
+    quantiles, not of uMUL.
+
+    THE DISTRIBUTION IS BIMODAL. Value = 128 has exactly one bit set. Flipping bit 7 clears it,
+    leaving the operand equal to whatever the other flipped bits happen to set -- always a small
+    number -- so every trial that hits bit 7 lands in a cluster down near zero, while every trial
+    that misses it stays in a tight cluster around 0.25. There is almost nothing in between.
+
+    THE LOWER CLUSTER GROWS PERFECTLY SMOOTHLY. Its mass is just the chance of hitting one
+    specific site out of 264, which is f/264, linear in f. Measured, as P(output < 0.10):
+
+        f          12        13        14        15        16
+        P(low)   0.0435    0.0470    0.0504    0.0538    0.0571      <- linear, no cliff
+        f/264    0.0455    0.0492    0.0530    0.0568    0.0606
+        5th pct  0.2344    0.2305    0.0664    0.0352    0.0195      <- jumps
+        P(reg)   0.3143    0.3361    0.3572    0.3778    0.3978      <- smooth across it
+
+    A QUANTILE BETWEEN TWO MODES CANNOT MOVE GRADUALLY. The 5th percentile sits on the upper
+    cluster for as long as the lower cluster is smaller than the 5% tail, ignoring it entirely.
+    The moment the lower cluster outgrows the tail, the percentile has to fall THROUGH the empty
+    gap between the modes and land on the lower one. It steps because the data has a gap in it,
+    not because anything changed at f = 14.
+
+    THE CROSSING POINT IS ARITHMETIC. The 5% tail is 5% of 264 sites = 13.2 flips, so bit 7 stops
+    being a 1-in-20 event at f = 14. That is exactly where the step occurs. It also means the
+    step's LOCATION is set by the choice of tail, not by the multiplier: at a 1% tail (98% band)
+    it would move to f = 3, and at a 10% tail (80% band) to f = 30. Nothing about the hardware
+    differs between those three figures.
+
+    HOW TO READ IT CORRECTLY ON THE POSTER. "Below 14 flips, 95% of trials survive with only
+    stream-level error; above it, catastrophic operand loss is common enough to sit inside a 90%
+    band." That is a statement about HOW OFTEN uMUL fails badly. It is not a statement that uMUL
+    begins to fail badly at 14 flips -- it can fail badly at ONE flip, with probability 1/264,
+    and the blue spine has touched 0.000 since f = 1 for exactly that reason.
+
+    THE AND GATE SHOWS NO SUCH STEP because its distribution is unimodal: every one of its 512
+    operand bits is worth the same 1/256, so there is no cluster of catastrophic outcomes for a
+    quantile to jump across. Its band widens smoothly at every flip level. Putting the two
+    figures side by side is the clearest way to show that unary redundancy buys graceful
+    degradation and a binary register does not.
+
+THE MEAN STAYS AT 0.25. Measured 0.250000 through f = 7 and 0.249982 at f = 36 -- a drift of
+1.8e-5, four orders of magnitude below the spread. So uMUL is unbiased under these faults, like
+the AND gate, but for a completely different reason. The AND gate's symmetry is geometric: the
+OV region can only lose ones and the BO region can only gain them, at equal size. uMUL's is
+arithmetic: XORing the value register with a random mask leaves the operand uniformly
+distributed over [0,256), and the mean of G(v, 128) over uniform v is exactly 64. Two different
+architectures, two different arguments, same answer -- faults add variance, not drift.
+
+THE EXTREMES, AND WHY ENUMERATION IS THE ONLY WAY TO REACH THEM
+    MINIMUM 0.000000, reachable from f = 1 onward: flip value bit 7, the operand becomes 0, the
+    strict ">" comparator never fires. Probability at f = 1 is 1/264 = 0.0038, which random
+    trials do find -- but its persistence as the exact floor at every higher f is an enumeration
+    result.
+
+    MAXIMUM 0.613281 = 157/256 at f = 36: spend 7 flips turning value 128 into 255 (flip bits
+    0 through 6) and the remaining 29 on stream zeros, pushing n1 from 128 to 157. Then
+    G(255, 157) = 157, every enabled cycle emits a one. Its probability is 2.54e-15, so 20,000
+    random trials expect 5e-11 hits on it and the MC_Probability column reads exactly 0.000000
+    for that row. Pass 1 constructs the layout and measures it. Log10TrialCount for that row is
+    29.93: about 8.4e29 individual literal trials collapse onto that one measured state.
+
+
+================================================================================================
+6b. FIGURE 3 -- THE EXPLAINER                    (uMUL_poster_failuremap.png)
+================================================================================================
+
+Figures 1 and 2 report WHAT happens. Figure 3 exists to answer the question figure 2 always
+provokes at a poster: "why does the band fall off a cliff, and where is it actually failing?"
+It adds no new experiment -- both panels are drawn from data already described above.
+
+TOP PANEL -- THE WHOLE DISTRIBUTION, NOT JUST ITS SUMMARY
+    A heat map of every row of uMUL_poster_faults.csv: x is the flip level, y is the answer,
+    colour is Probability on a LOG scale spanning 1e-12 to 1. Figure 2 compresses each column of
+    this into five numbers; here the column is shown whole.
+
+    The shape is two regimes, orders of magnitude apart in probability:
+
+        THE RIDGE   a bright, narrow band pinned at 0.25. Trials whose operand register was not
+                    struck -- the answer moves only by stream-flip quanta of 1/256. At f = 8
+                    this is 78% of all trials.
+        THE SHELF   a broad, dim plateau running from about 0.23 all the way down to zero.
+
+    WHAT THE SHELF ACTUALLY IS -- AND IT IS NOT "THE REGISTER WAS HIT"
+        value = 128 = 1000_0000 has exactly ONE bit set. A register strike gives
+        value' = 128 XOR mask(S), and that splits cleanly in two:
+
+            bit 7 SURVIVES   value' = 128 + mask(S) in [128,255]  ->  answer >= 0.25
+            bit 7 DIES       value' = mask(S\{7})   in [0,127]    ->  answer <  0.25   <- SHELF
+
+        Because the 128 Sobol points consumed are exactly the even numbers 0,2,...,254, the
+        output is G(value',128) = ceil(value'/2), i.e. answer ~ value'/512. So the shelf is one
+        sentence: KILL THE MSB AND THE OPERAND BECOMES WHATEVER THE SURVIVING LOW BITS SAY.
+
+            no other register bit struck  ->  value' = 0     ->  answer exactly 0
+            one other bit b struck        ->  value' = 2^b   ->  answer ~ 2^b / 512
+            several                       ->  subset sums of {1,2,4,...,64}
+
+        It is BROAD because those subset sums give about 128 landing places between 0 and
+        127/512 = 0.248, and DIM because the probability spreads across all of them.
+
+        THE SHELF'S MASS IS P(bit 7 struck) = f/264 -- ONE SITE OUT OF 264 -- NOT the
+        register-hit probability. Measured against the CSV, P(answer < 0.23) matches f/264 to
+        four decimals at every flip level. Only 13% to 20% of register hits land below 0.25;
+        the rest push the answer UP, into the fan above the ridge. An earlier revision of this
+        file described the shelf as "trials whose register did not survive", which is wrong by
+        roughly a factor of five in mass and wrong in direction for most of that population.
+
+    Overlaid: the 5th and 95th percentiles from figure 2, and the mean.
+
+    NOW THE CLIFF IS OBVIOUS. The 5th percentile sits on the bottom edge of the RIDGE for as
+    long as the shelf holds less than 5% of the trials, because everything on the shelf is
+    inside the discarded tail. At f = 14 the shelf crosses 5% and the percentile has to sit
+    inside the shelf instead -- and since the shelf is broad and nearly flat, "5% into the
+    shelf" is a very long way down. The red line visibly falls off the ridge and slides down the
+    shelf. Marked on the figure with a dotted line at f = 14.
+
+    The heat map also makes the two facts of section 6 visible at a glance: the ridge never
+    moves off 0.25 (the mean is unbiased) and the top edge climbs steadily (the 95th percentile
+    rises smoothly while the 5th collapses).
+
+BOTTOM LEFT -- WHERE THE DAMAGE COMES FROM, DRAWN TO SCALE
+    All 264 operand bits as the change each makes when it alone is flipped, straight from
+    uMUL_poster_sensitivity.csv. Bar WIDTH is the number of sites the bar stands for, so bar
+    AREA is that group's share of the risk. The result is one enormous flat bar of 256 stream
+    bits doing nothing at +/- 1/256, and an 8-bit sliver at the right holding everything. The
+    sliver is 3.03% of the width. That single image is the uMUL trade-off.
+
+BOTTOM RIGHT -- THAT SLIVER, EXPANDED
+    The same 8 register bits at equal width so they can be read, with the stream bit's +/- 1/256
+    drawn as a dashed reference. Bits 0 through 6 rise geometrically -- +0.004, +0.004, +0.008,
+    +0.016, +0.031, +0.062, +0.125 -- because setting bit b adds 2^b to an operand of 128.
+    Bit 7 goes the other way and goes all the way: value = 128 has exactly ONE bit set, so
+    flipping bit 7 clears the operand outright, the strict ">" comparator can never fire again,
+    and the answer is a hard zero. One upset there is worth 64 stream upsets.
+
+    NOTE THE ASYMMETRY IN THE BAR CHART, because it explains the asymmetry in figure 2's band.
+    Seven of the eight register bits push the answer UP and only one pushes it DOWN -- but that
+    one is worth more than the other seven combined. Small numbers of flips therefore lean the
+    band high; once bit 7 becomes likely, the band leans hard low.
+
+
+================================================================================================
+6e. FIGURE 4 -- THE DECOMPOSITION THAT REMOVES THE CLIFF   (uMUL_poster_decomposed.png)
+================================================================================================
+
+THE PROBLEM. Figure 2's 5th percentile falls 0.164 between f = 13 and f = 14 and nothing in the
+hardware changes there. Section 6b explains why: the distribution is a MIXTURE, and a quantile
+over a mixture jumps the instant the mixing weight crosses the tail fraction. That is a property
+of quantiles, not of uMUL. Figure 2 is not WRONG -- it is the true marginal distribution -- but
+its summary statistic is the wrong instrument for a mixture.
+
+YOU CANNOT FIX IT BY MOVING THE THRESHOLD. The shelf's mass is f/264, which grows linearly and
+will cross ANY tail fraction eventually. A 1% tail moves the cliff to f = 3; a 10% tail moves it
+to f = 30. The cliff is not removable by choosing a better number.
+
+THE FIX: STOP MIXING. Report the two populations separately plus the weight that mixes them.
+Three curves replace one, and all three are smooth:
+
+    curve                          f = 1              f = 36           largest single-f step
+    operand intact   (band)        0.246 - 0.254      0.230 - 0.270       0.003906
+    operand damaged  (band)        0.000 - 0.375      0.000 - 0.402       0.003906
+    P(operand damaged)             0.030              0.696              (smooth, monotone)
+    ------------------------------------------------------------------------------------
+    mixed, i.e. figure 2 (band)    0.246 - 0.254      0.004 - 0.387       0.164062  <- cliff
+
+0.003906 is 1/256 -- the output quantisation floor. The conditional bands are as smooth as this
+data can possibly be. The .m prints these three step sizes on every run so the claim is checked
+rather than asserted.
+
+WHICH SPLIT, AND WHY NOT THE MSB. Section 6b establishes that BIT 7 is what separates the modes,
+so splitting on ProbMSBIntact / ProbMSBLost is the mechanically exact choice, and those columns
+are in the CSV. It is NOT the better split for these bands, though. Conditioned on MSB-lost the
+answer is a subset sum of the surviving low bits, which is lumpy, and the band edges then step by
+up to 0.027 as individual subset sums cross the 5% line. Splitting on "was any register bit
+struck" gives 0.0039. So: MECHANISM FROM THE MSB, BANDS FROM THE REGISTER. Both were measured
+before choosing; the numbers are above.
+
+WHAT THE FIGURE SHOWS
+    TOP     two whiskers per flip level, offset side by side. Green = operand intact, orange =
+            operand damaged. Thick caps are that population's middle 90%; the thin spine is its
+            full reach. The green band widens slowly and stays on 0.25. The orange band is broad
+            from ONE flip onward and its floor is pinned at 0.000 the whole way across -- which
+            is the real statement: when the operand dies it can die completely, and that is true
+            at f = 1 just as much as at f = 36.
+    BOTTOM  P(operand damaged), the mixing weight, with figure 2's cliff marked. The curve passes
+            straight through it without a kink. Nothing happens to either population at f = 14;
+            only the mixture's quantile moves, and only because a weight crossed a threshold.
+
+WHICH FIGURE TO PUT ON THE POSTER. Figure 2 answers "what is the overall spread of answers", and
+is the honest marginal. Figure 4 answers "how often does the operand die, and how bad is it when
+it does", which is the more useful engineering question and the one with no artifact in it. They
+are the same 806,928 measured trials, summarised two ways.
+
+
+================================================================================================
+6c. IS THE ERROR NORMALLY DISTRIBUTED?  NO -- AND THAT IS THE RESULT
+================================================================================================
+
+A natural objection to figures 2 and 3 is that the strange behaviour might be an artifact of
+summarising a distribution badly. It is not. The distribution itself is the finding, and the
+cleanest way to show that is to test it against a normal: a Gaussian holds exactly 90% of its
+mass within +/- 1.645 standard deviations.
+
+    f          AND gate                              uMUL
+         skew   ex.kurt  P(+/-1.645sd)      skew    ex.kurt  P(+/-1.645sd)
+     1  +0.000   -1.000     1.0000         -8.444   +141.50     0.9848
+     2  +0.003   -0.499     0.8762         -6.235    +74.25     0.9773
+     4  +0.006   -0.249     0.9316         -4.355    +35.65     0.9568
+     8  +0.010   -0.123     0.9274         -2.997    +16.33     0.9392
+    16  +0.016   -0.061     0.9003         -2.003     +6.70     0.8892
+    32  +0.024   -0.030     0.9167         -1.249     +1.93     0.8722
+
+THE AND GATE CONVERGES TO NORMAL. Skewness is zero to three decimals, excess kurtosis marches
+steadily to zero, and the coverage settles around 0.90. That is the central limit theorem doing
+exactly what it should: the answer is a sum of many small, independent, equally weighted
++/- 1/256 contributions, so it is asymptotically Gaussian.
+
+uMUL NEVER GETS THERE. Skewness -8.4 and excess kurtosis +141 at ONE flip, and even at 32 flips
+it has not arrived. The CLT does not apply because the 264 contributions are not exchangeable --
+256 of them are worth 1/256 and one of them is worth 0.25. A sum is only asymptotically normal
+if no single term dominates the variance, and here one does:
+
+    share of the total variance contributed by the register-hit trials
+        f = 1     3.03% of trials  ->  95.5% of the variance
+        f = 4    11.64% of trials  ->  99.0%
+        f = 8    22.09% of trials  ->  99.1%
+        f = 16   39.78% of trials  ->  99.3%
+        f = 32   64.96% of trials  ->  99.6%
+
+WHY THE COVERAGE IS ABOVE 90%, NOT BELOW. At f = 1 the +/- 1.645 sd window holds 98.5% of uMUL's
+trials rather than 90%. That is the signature of a fat tail, not of a wide distribution: sd is
+being set by a 3% minority, so the TYPICAL error is far smaller than sd suggests while the RARE
+error is far larger. Both halves of that sentence are wrong if you model uMUL error as Gaussian.
+
+THE PRACTICAL CONSEQUENCE. Standard deviation is a meaningless summary for uMUL, and any
+downstream analysis that propagates "mean +/- sigma" through an accumulator will be wrong in both
+directions at once. It is also why the AND gate's errors average out across a long dot product
+-- unbiased, finite variance, many independent terms -- while uMUL's do not: its variance lives
+in rare events, so a single accumulation can be destroyed by a single upset no matter how many
+terms it has. Report uMUL as a probability of catastrophic failure, never as an error bar.
+
+
+================================================================================================
+7. WHY IT IS HONEST TO CALL THESE REAL TRIALS
+================================================================================================
+
+The combinatorics of section 4 supply ONLY the weight attached to each outcome; the outcome
+itself is always simulated. Three passes, 806,928 real 256-cycle gate simulations:
+
+PASS 1 -- PER-STATE MEASUREMENT (INSTANCES_PER_CLASS = 4, 66,928 runs)
+    Every distinct (value, n1) state is built as an actual 256-bit stream on four INDEPENDENTLY
+    SHUFFLED arrangements, loaded into a real UnaryMultiplier, clocked 256 times, and the four
+    results asserted equal. This is what turns the collapse from an argument into an observation.
+
+PASS 2 -- FORWARD MONTE CARLO (20,000 per level, 740,000 runs)
+    Genuinely random trials with no steering, as described in step 6. Its histogram ships in the
+    CSV as MC_Probability, beside the enumerated Probability, so the two can be compared row by
+    row on the poster.
+
+PASS 3 -- WARM-UP AND SENSITIVITY TABLE (552 fresh runs)
+
+THE TWO CHECKS THAT ARE ASSERTIONS, NOT COMMENTS
+    (a) The Vandermonde identity of step 3, EXPECT_NEAR(wsum, 1.0, 1e-9) at every flip level. If
+        the enumeration ever double counted or missed a layout, the build fails.
+    (b) The worst absolute disagreement between the enumerated probability and the measured
+        random-trial frequency, across all 37 levels, is 0.0060. At 20,000 draws the standard
+        error on the most probable outcome is of order 0.003, so 0.0060 is ordinary sampling
+        noise. Asserted as EXPECT_LT(worst_gap, 0.02).
+
+    (For reference the AND-gate twin reports 0.0065 on the same check. Two independent
+     architectures, two independent enumerations, both agreeing with random trials to within
+     sampling error.)
+
+
+================================================================================================
+8. CSV COLUMN REFERENCE
+================================================================================================
+
+uMUL_poster_warmup.csv  -- one row per truncation length
+    N                   truncation point in cycles (2, 4, ... 256)
+    MeanEstimate        arrangement-weighted mean of G(128,n)/L. Exactly 0.25 everywhere except
+                        L = 2, where the quantisation floor of section 5 pushes it to 0.3755.
+    MeanAbsError        arrangement-weighted mean of |G(128,n)/L - 0.25|.  <- FIGURE 1's Y AXIS
+    MinEstimate         lowest G(128,n)/L over all classes at this length
+    MaxEstimate         highest G(128,n)/L over all classes at this length
+    Classes             hypergeometric classes summed = min(L,128) - max(0,L-128) + 1
+    Log10Arrangements   75.7611 -- log10 of C(256,128). ONE stream's worth this time, not a
+                        pair: in_1 is a register, so there is no second arrangement space. The
+                        AND gate's file reads 151.52 for exactly that reason.
+
+uMUL_poster_faults.csv  -- one row per (flip level, reachable outcome)
+    BitsFlipped         f, injected flips over the 264-bit surface (0..36)  <- FIGURE 2's X AXIS
+    OutputOnes          k, measured ones in the faulted output (0..256)
+    OutputFraction      k/256                                               <- FIGURE 2's Y AXIS
+    ErrorPerN           (k - 64)/256, the signed error
+    Probability         exact share of all layouts at this f landing on k, from step 3
+    MC_Probability      the same share as MEASURED by 20,000 random trials (pass 2)
+    MC_Trials           20000, the random-trial count behind MC_Probability
+    LevelRealTrials     real gate simulations run at this flip level (passes 1 + 2). Falls toward
+                        20,000 as f rises, because the memo of step 4 keeps paying off.
+    ProbRegisterClean   share of this row's trials whose 8-bit value register was NOT hit
+    ProbRegisterHit     share whose value register WAS hit. Summing this column within a flip
+                        level gives the P(register hit) of section 6, and splitting a row into
+                        these two parts is the whole explanation of figure 2's shape.
+    Log10TrialCount     log10 of the raw number of flip layouts reaching this outcome, i.e.
+                        log10(Probability * C(264,f)). The counts overflow every integer type.
+
+    Probability and MC_Probability each sum to 1.0 within a flip level; ProbRegisterClean +
+    ProbRegisterHit sums to 1.0 within a flip level as well.
+
+uMUL_poster_sensitivity.csv  -- one row per single-flip site class, 10 rows covering all 264 bits
+    Site                value_bit_0..7, or stream_bit_on_a_one / stream_bit_on_a_zero
+    SiteCount           how many of the 264 bits this row stands for. Sums to 264: 8 register
+                        bits at 1 each, plus 128 stream ones and 128 stream zeros.
+    ProbPerSingleFlip   SiteCount/264 -- the chance a lone upset lands in this class
+    FaultedValue        what the 8-bit operand register holds afterwards (128 if untouched)
+    OutputOnes          measured output ones with that single flip applied
+    OutputFraction      OutputOnes/256                          <- FIGURE 3 BOTTOM PANELS' Y AXIS
+    Delta               OutputFraction - 0.25, the signed damage
+
+    Every row is a real gate run, not a formula. The whole file is 10 rows because a single flip
+    on the 264-bit operand surface has exactly 10 distinguishable outcomes -- which is itself the
+    collapse of section 2 at f = 1.
+
+
+================================================================================================
+9. HONEST LIMITATIONS
+================================================================================================
+
+Stated plainly, since a poster should not overclaim:
+
+ -  ONE OPERAND PAIR. Everything is 0.5 x 0.5. The register-bit sensitivity table of section 3.3
+    is specific to value = 128: bit 7 is catastrophic precisely BECAUSE it is the bit that is
+    set. At value = 64 it would be bit 6 that halves the operand and bit 7 that triples it. The
+    qualitative result -- one MSB upset dominates 256 stream upsets -- holds for any value, but
+    the exact numbers do not.
+
+ -  ONLY THE OPERAND SURFACE. Section 3.2 lists what is excluded and why: the rng_index
+    register, the RNG output bus, and the enable/output wires, together 2,560 further exposure
+    sites per run. Their upsets are time-dependent and do not collapse, so covering them
+    exhaustively is not possible at this scale. uMUL's real cross-section is therefore LARGER
+    than the 264 bits swept here -- this figure is a lower bound on its vulnerability, not an
+    upper one.
+
+ -  THE VALUE REGISTER IS CORRUPTED FOR THE WHOLE RUN. That is the worst case within a single
+    multiply, and it is the RIGHT model for uGEMM's actual use, where one weight is loaded and
+    held across many activation streams -- a hit early in a long weight-stationary run really
+    does corrupt everything after it. It is pessimistic for a design that reloads iB every
+    multiply.
+
+ -  UNIFORM RANDOM FLIP PLACEMENT -- THE BIGGEST ASSUMPTION IN THIS FILE, AND IT FAVOURS uMUL.
+    Flips are placed uniformly over the 264 sites, so the model assumes P(a flip hits the value
+    register) = 8/264 = 3.03%. The two populations are not physically comparable:
+
+        value register   8 FLIP-FLOPS, powered and holding state for the whole run
+                         = 2048 FF-cycles of exposure per multiply
+        in_0 stream      NOT storage. One bit arrives per cycle on a wire, so unless the whole
+                         stream is buffered in a 256-bit shift register this is 256 TRANSIENT
+                         node-cycles, and a transient only matters if it is captured in a
+                         latching window.
+
+    A flip-flop's SEU cross-section is materially higher than a combinational node's at typical
+    clock rates -- the same lesson radiation_model.hpp records when it notes the flip-flop rate
+    is ~2000x the configuration-RAM rate, i.e. WHICH RESOURCE dominates more than which orbit.
+    (The direction is well established; this file does not put a number on the FF-versus-
+    combinational ratio because no citation for it is on hand.)
+
+    CONSEQUENCE: in the realistic uGEMM configuration, where in_0 is generated on the fly by an
+    SNG rather than buffered, the register's share of the fault rate is HIGHER than 3.03%, the
+    shelf of section 6b grows faster, and the cliff moves LEFT. Figure 2 is therefore an
+    OPTIMISTIC picture of uMUL, not a pessimistic one.
+
+    Real upsets also cluster: a multi-bit upset landing on two adjacent register bits is both
+    more likely and more damaging than an independent-placement model says.
+
+ -  THE FLIP COUNT IS A STRESS AXIS, NOT A RATE. f is how many upsets are ASSUMED to have landed,
+    not how many are expected to. No upset rate is used anywhere in this folder, deliberately --
+    see the note at the top. The consequence for reading figure 2: the low-f columns are the ones
+    any realistic rate will actually exercise, and f = 1 in particular is where uMUL looks worst
+    against the AND gate (0.000 to 0.375 against 0.246 to 0.254). The high-f columns are a stress
+    sweep that maps out the response function completely, and should be described that way rather
+    than as a predicted operating point.
+
+ -  ONE MULTIPLY PER LOAD. This file resets the unit for every multiply, so a register upset costs
+    exactly one wrong answer. Real uGEMM is WEIGHT-STATIONARY: in_1 is loaded once and held while
+    many activation streams flow past, so one upset corrupts every multiply until the next reload.
+    If a weight is reused M times, the share of results computed with a damaged weight is larger
+    than this characterisation says by a factor of about M/2 -- a pure dataflow multiplier, with
+    no environment in it, and M runs to 10^5 or more in a real accelerator. Applying it is part of
+    the same later step as applying an upset rate, and is not done here.
+
+ -  NO COMPARISON OF AREA OR POWER. The poster claim is about accuracy and fault response only.
+    uMUL needs an 8-bit register, a comparator and a Sobol generator where the AND gate needs
+    one gate; that cost is real and is not measured here.
+
+ -  ZERO-ERROR STARTING POINT. Every trial begins from an exactly correct 0.25. For uMUL that is
+    free -- section 2 -- whereas the AND gate had to filter for it. The figures should not be
+    read as a total error budget.
+
+================================================================================================
