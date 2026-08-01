@@ -1,4 +1,4 @@
-#include <gtest/gtest.h>
+﻿#include <gtest/gtest.h>
 
 #include <cmath>
 #include <fstream>
@@ -18,9 +18,18 @@
 // Every representable operand pair at N = 1024, with nothing approximated on the way in:
 //
 //   in_0   a 1024-cycle stream carrying EXACTLY k0 ones, for every k0 in 0..1024
-//   in_1   the binary value k1 loaded straight into the register, for every k1 in 0..1024
+//   in_1   the binary value k1 loaded straight into the register, for every k1 in 0..1023
 //
-// so the pair (k0, k1) covers all 1025 x 1025 = 1,050,625 combinations of multiples of 1/1024.
+// so the pair (k0, k1) covers all 1025 x 1024 = 1,049,600 combinations.
+//
+// WHY THE TWO RANGES DIFFER, and it is not a fencepost slip. They count different things:
+//   k0 is a TALLY of ones in a 1024-bit stream, and a tally over 1024 bits takes 1025 values --
+//     0 ones through 1024 ones inclusive. Both ends are real, representable streams.
+//   k1 is the contents of a `width`-BIT REGISTER, which holds 1024 values, 0 through 1023. The
+//     value 1024 would need an eleventh bit. uMUL_uni.sv does not have one (its `iB` is 8 bits,
+//     topping out at 255), so neither does this, and p1 = 1.0 is simply not an operand.
+//   The consequence shows up at the top of the sweep: k1 = 1023 is the densest available operand
+//   and generates 1023/1024, so even "multiply by one" drops a bit.
 // The ideal output is k0 * k1 / 1024 ones, and the question this test answers is how far the
 // hardware lands from that -- measured in BITS of the 1024-cycle output, not in probability.
 //
@@ -44,9 +53,10 @@ using namespace StochasticSimulator;
 
 namespace {
 
-constexpr std::size_t N = 1024;      // stream length
-constexpr unsigned WIDTH = 10;       // log2(N): RNG period exactly covers the run
-constexpr std::size_t STEPS = N + 1; // k = 0 .. 1024 inclusive
+constexpr std::size_t N = 1024;         // stream length
+constexpr unsigned WIDTH = 10;          // log2(N): RNG period exactly covers the run
+constexpr std::size_t STREAM_STEPS = N + 1;  // k0 = 0 .. 1024: a tally over 1024 bits
+constexpr std::size_t VALUE_STEPS = N;       // k1 = 0 .. 1023: a 10-bit register
 
 }  // namespace
 
@@ -54,8 +64,8 @@ TEST(UnaryMultiplierBehaviourTest, ExhaustiveBitLevelSweepOverAllMultiplesOf1024
     // =========================================================================
     // 1. INPUT STREAMS -- one per k0, each carrying exactly k0 ones
     // =========================================================================
-    std::vector<std::vector<bool>> in_0(STEPS);
-    for (std::size_t k0 = 0; k0 < STEPS; ++k0) {
+    std::vector<std::vector<bool>> in_0(STREAM_STEPS);
+    for (std::size_t k0 = 0; k0 < STREAM_STEPS; ++k0) {
         in_0[k0] = generate_sobol_stream(static_cast<double>(k0) / static_cast<double>(N), N, 1);
         ASSERT_EQ(in_0[k0].size(), N);
         ASSERT_EQ(count_ones(in_0[k0]), k0)
@@ -88,10 +98,10 @@ TEST(UnaryMultiplierBehaviourTest, ExhaustiveBitLevelSweepOverAllMultiplesOf1024
     UnaryMultiplier umul(WIDTH, 1);
     int next_report = 10;
 
-    for (std::size_t k1 = 0; k1 < STEPS; ++k1) {
+    for (std::size_t k1 = 0; k1 < VALUE_STEPS; ++k1) {
         umul.load_value(static_cast<uint64_t>(k1));
 
-        for (std::size_t k0 = 0; k0 < STEPS; ++k0) {
+        for (std::size_t k0 = 0; k0 < STREAM_STEPS; ++k0) {
             umul.reset();  // clears the run, keeps the loaded operand
 
             std::size_t out_ones = 0;
@@ -119,9 +129,9 @@ TEST(UnaryMultiplierBehaviourTest, ExhaustiveBitLevelSweepOverAllMultiplesOf1024
             csv << k0 << ',' << k1 << ',' << out_ones << ',' << ideal_ones << ',' << err << '\n';
         }
 
-        int pct = static_cast<int>(100.0 * (k1 + 1) / STEPS);
+        int pct = static_cast<int>(100.0 * (k1 + 1) / VALUE_STEPS);
         if (pct >= next_report) {
-            std::cout << "[INFO] " << pct << "% (" << (k1 + 1) << "/" << STEPS << " operands)"
+            std::cout << "[INFO] " << pct << "% (" << (k1 + 1) << "/" << VALUE_STEPS << " operands)"
                       << std::endl;
             next_report += 10;
         }
@@ -156,20 +166,26 @@ TEST(UnaryMultiplierBehaviourTest, ExhaustiveBitLevelSweepOverAllMultiplesOf1024
     // =========================================================================
     // 4. GUARDS
     // =========================================================================
-    // The rails must be bit-exact -- there is no estimator to get them wrong.
-    // k1 = 0 emits nothing; k1 = 1024 passes in_0 through untouched.
-    for (std::size_t k0 = 0; k0 < STEPS; k0 += 64) {
+    // The ZERO rail must be bit-exact -- value 0 can never win a strict ">", so nothing escapes.
+    // The TOP of the register, k1 = 1023, is NOT a pass-through: it loses exactly the cycles
+    // where the Sobol draw is 1023, and dimension 1 visits 1023 once per period (at index 682).
+    // So the output is k0 ones for k0 <= 682 and k0 - 1 beyond it. That single dropped bit is the
+    // whole difference between a width-bit register and the (width + 1)-bit one that would be
+    // needed to express p1 = 1.0, and uMUL_uni.sv does not have that extra bit either.
+    for (std::size_t k0 = 0; k0 < STREAM_STEPS; k0 += 64) {
         umul.load_value(0);
         umul.reset();
         std::size_t zeros_out = 0;
         for (std::size_t t = 0; t < N; ++t) if (umul.multiply(in_0[k0][t])) ++zeros_out;
         EXPECT_EQ(zeros_out, 0u) << "k1 = 0 leaked at k0 = " << k0;
 
-        umul.load_value(N);
+        umul.load_value(N - 1);
         umul.reset();
-        std::size_t pass_out = 0;
-        for (std::size_t t = 0; t < N; ++t) if (umul.multiply(in_0[k0][t])) ++pass_out;
-        EXPECT_EQ(pass_out, k0) << "k1 = 1024 did not pass in_0 through at k0 = " << k0;
+        std::size_t top_out = 0;
+        for (std::size_t t = 0; t < N; ++t) if (umul.multiply(in_0[k0][t])) ++top_out;
+        std::size_t expected = (k0 > 682) ? k0 - 1 : k0;
+        EXPECT_EQ(top_out, expected)
+            << "k1 = 1023 should drop exactly one bit once index 682 is reached, at k0 = " << k0;
     }
 
     // WITHIN ONE BIT IS NOT ACHIEVABLE, and the sweep is how we know. Measured: 86.5% of pairs
@@ -204,9 +220,9 @@ TEST(UnaryMultiplierBehaviourTest, ExhaustiveBitLevelSweepOverAllMultiplesOf1024
     // 4225 of them.
     double max_err_dim1 = 0.0, max_err_dim2 = 0.0;
     std::size_t coarse_pairs = 0;
-    for (std::size_t k1 = 0; k1 < STEPS; k1 += 16) {
+    for (std::size_t k1 = 0; k1 < VALUE_STEPS; k1 += 16) {
         umul.load_value(static_cast<uint64_t>(k1));
-        for (std::size_t k0 = 0; k0 < STEPS; k0 += 16) {
+        for (std::size_t k0 = 0; k0 < STREAM_STEPS; k0 += 16) {
             double ideal = static_cast<double>(k0) * static_cast<double>(k1) /
                            static_cast<double>(N);
             for (unsigned dim = 1; dim <= 2; ++dim) {

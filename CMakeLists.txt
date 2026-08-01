@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.16)
+﻿cmake_minimum_required(VERSION 3.16)
 
 project(stochastic_computer LANGUAGES CXX)
 
@@ -72,8 +72,11 @@ set(UNIT_TESTS
 # =====================================================================================
 set(FUNCTIONAL_TESTS
   "tests/Functional Tests/multiplier/ANDmul/test_multiplier_accuracy.cpp"
-  "tests/Functional Tests/multiplier/SuMUL/test_SuMUL_accuracy.cpp"    # -> sumul_exhaustive_trials.csv
+  #"tests/Functional Tests/multiplier/SuMUL/test_SuMUL_accuracy.cpp"    # -> sumul_exhaustive_trials.csv
   "tests/Functional Tests/multiplier/uMUL/test_uMUL_behavior.cpp"      # ~41 s, -> umul_behavior_exhaustive.csv (29 MB)
+  "tests/Functional Tests/multiplier/uMUL/test_uMUL_convergence.cpp"   # ~107 s, -> umul_convergence_{low,mid,high,allpairs}.csv
+                                                                       #   (the all-pairs sweep alone is ~96 s: every operand
+                                                                       #    pair x every arrangement x all 1024 termination points)
 
   # Cut for speed -- re-enable when you actually want the divider numbers.
   # "tests/Functional Tests/divider/test_dividers_accuracy.cpp"
@@ -86,6 +89,11 @@ set(FUNCTIONAL_TESTS
 set(FAULT_INJECTION_TESTS
   "tests/Functional Tests/gen_fault_tests.cpp"
   "tests/Fault Injection/divider/test_divider_fault2.cpp"              # ~1 s, -> 32bit_exhaustive_divider_trials.csv
+  "tests/Fault Injection/multiplier/test_uMUL_radiation.cpp"           # -> umul_radiation_sensitivity.csv + umul_radiation_rate_sweep.csv
+
+  # SPARK 2026 poster code. Writes its CSV next to its own source file (via __FILE__), not to
+  # the working directory, so the poster folder stays self-contained.
+  "ECE_SPARK2026_poster_code/Multiplication/AND_mul/AND_Mul_poster.cpp"      # -> 2 CSVs in AND_mul/
 
   # Currently disabled -- re-enable individually as needed.
   # "tests/Fault Injection/multiplier/multiplier_injections.cpp"
