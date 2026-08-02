@@ -29,7 +29,8 @@
 %       BLUE STICK  full reach, caps at the measured extremes
 %       RED DASHES  the equal-tailed middle 90% (5th / 95th percentile), not forced symmetric
 %       BLUE DOT    trial-weighted mean, pinned at 0.25 at every flip level
-%       Vertical scale is EXPANDED to 0.15-0.35, because on plot 3's axis this is a flat line.
+%       Vertical scale is 0.10-0.40, SHARED with the AND gate's fault figure so the two can be
+%       mounted side by side. On plot 3's full 0-0.70 axis this panel would be a flat line.
 %
 %   PLOT 3, OPERAND DAMAGED  at least one of the 8 register bits struck.
 %       ORANGE STICK  full reach, caps at the measured extremes
@@ -79,6 +80,30 @@ end
 TARGET     = 0.25;
 SHOW_FLIPS = [0 1 2 4 8 16 32];  % the x positions, on a log axis
 TAIL       = 0.05;               % cut this much off EACH end -> red band is the middle 90%
+
+%% POSTER STYLE -- identical in all four scripts in this folder set.
+%
+% MEDIUM GREY, NOT THE MATLAB DEFAULT DARK. Mounted on a light poster, a near-black panel reads
+% as a hole punched in the page and pulls the eye away from the text around it. A medium grey
+% sits quietly next to white card while still separating the plot from the background.
+%
+% Everything else follows: on mid-grey, white text loses contrast, so the axes, labels and titles
+% go NEAR-BLACK and the grid goes light, reading as a soft guide rather than as data. The data
+% colours are unchanged apart from the blue, darkened from [0.20 0.40 0.95] so it does not go
+% muddy against grey in print.
+%
+% Font sizes are set HERE and applied in style_axes, which overrides whatever each xlabel/title
+% call asked for. One place to tune, and it keeps the four scripts identical.
+STY = struct( ...
+    'bg',    [0.62 0.62 0.62], ...   % the PLOT PANEL only
+    'figbg', [1.00 1.00 1.00], ...   % figure surround + exported margin: WHITE
+    'fg',    [0.10 0.10 0.10], ...   % axes, ticks, labels, titles
+    'grid',  [1.00 1.00 1.00], ...   % divider lines, WHITE on the grey panel
+    'legbg', [0.72 0.72 0.72], ...   % legend panel, a touch lighter so it lifts off the axes
+    'tick',  14, ...                 % tick labels
+    'label', 15, ...                 % axis labels
+    'title', 15);                    % titles
+MARGIN_PX = 40;                      % border around every exported PNG; 300 DPI ~ 3.4 mm
 
 %% ---------------------------------------------------------------------------------------
 %% Load
@@ -194,7 +219,7 @@ fig1 = figure('Name', 'uMUL -- Zero-Fault Warm-Up', ...
 
 ax1 = axes(fig1);
 plot(ax1, W.N, W.MeanAbsError, '-o', 'LineWidth', 2.4, 'MarkerSize', 8, ...
-     'Color', [0.15 0.30 0.75], 'MarkerFaceColor', [0.15 0.30 0.75]);
+     'Color', [0.10 0.28 0.85], 'MarkerFaceColor', [0.10 0.28 0.85]);
 set(ax1, 'XScale', 'log');
 grid(ax1, 'on');
 % A log axis turns MINOR grid lines on by default -- dotted verticals at every 2x, 3x, 4x
@@ -225,7 +250,7 @@ xpos = SHOW_FLIPS;
 xpos(xpos == 0) = 0.5;
 capBlue = 1.055;
 capRed  = 1.075;   % 90% dashes a touch wider so they read as separate marks
-BLUE   = [0.20 0.40 0.95];
+BLUE   = [0.10 0.28 0.85];
 RED    = [0.90 0.20 0.20];
 ORANGE = [0.95 0.55 0.10];
 
@@ -271,12 +296,16 @@ grid(ax2, 'on');
 ax2.XMinorGrid = 'off';  ax2.YMinorGrid = 'off';
 ax2.XMinorTick = 'off';  ax2.YMinorTick = 'off';
 xlim(ax2, [0.38 max(SHOW_FLIPS) * 2.6]);
-ylim(ax2, [0.15 0.35]);
+% Y bounded to 0.10 - 0.40, i.e. 0.25 +/- 0.15, SHARED with the AND gate's fault-response figure.
+% That is the whole point of this panel: mounted beside AND_Mul_poster_faults.png on the same
+% scale, it shows that uMUL's ordinary case -- 97% of single upsets -- behaves like the AND gate.
+% The comparison only works if the axes match, so do not retune one without the other.
+ylim(ax2, [0.10 0.40]);
 xticks(ax2, xpos);  xticklabels(ax2, string(SHOW_FLIPS));
 xlabel(ax2, 'Bits Flipped  (over the 264-bit operand surface) [log]', 'FontSize', 13);
 ylabel(ax2, 'Fraction of Ones in the Final Answer', 'FontSize', 13);
 title(ax2, {'uMUL -- Fault Response, OPERAND INTACT', ...
-            'no register bit struck   |   note the expanded vertical scale, 0.15 to 0.35'}, ...
+            'no register bit struck   |   scale 0.10 to 0.40, shared with the AND gate'}, ...
       'FontSize', 13);
 
 hold(ax2, 'on');
@@ -381,7 +410,7 @@ end
 streamDelta = max(abs(S.Delta(startsWith(string(S.Site), "stream"))));
 
 hold(ax4, 'on');
-bar(ax4, 0:7, regDelta, 0.72, 'FaceColor', RED, 'EdgeColor', [1 1 1], 'LineWidth', 0.6);
+bar(ax4, 0:7, regDelta, 0.72, 'FaceColor', RED, 'EdgeColor', STY.fg, 'LineWidth', 0.6);
 % The stream bit's damage, for scale. On this axis it is almost invisible, which is the message.
 yline(ax4, +streamDelta, '--', 'Color', BLUE, 'LineWidth', 1.4);
 yline(ax4, -streamDelta, '--', 'Color', BLUE, 'LineWidth', 1.4, ...
@@ -397,7 +426,7 @@ for b = 0:7
              'FontSize', 11, 'Color', RED, 'FontWeight', 'bold');
     else
         text(ax4, b, d + 0.010, sprintf('%+.3f', d), 'HorizontalAlignment', 'center', ...
-             'FontSize', 10, 'Color', [1 1 1]);
+             'FontSize', 12, 'Color', STY.fg);
     end
 end
 hold(ax4, 'off');
@@ -414,12 +443,13 @@ ax4.Toolbar.Visible = 'off';
 %% ---------------------------------------------------------------------------------------
 %% Light touch-ups, then export each figure on its own
 %% ---------------------------------------------------------------------------------------
-% Default theme left alone, matching the AND-gate script so the PNGs look like one set.
+% Same palette and font sizes as the AND-gate script, so all four PNGs look like one set.
 for ax = [ax1 ax2 ax3 ax4]
-    ax.FontSize = 12;
-    ax.LineWidth = 1.0;
-    ax.Box = 'on';
+    style_axes(ax, STY);
 end
+set([fig1 fig2 fig3 fig4], 'Color', STY.figbg);
+style_legend(lg2, STY);
+style_legend(lg3, STY);
 ax1.YAxis.TickLabelFormat = '%.2f';
 ax2.YAxis.TickLabelFormat = '%.2f';
 ax3.YAxis.TickLabelFormat = '%.2f';
@@ -433,7 +463,45 @@ exportgraphics(fig1, png1, 'Resolution', 300, 'BackgroundColor', 'current');
 exportgraphics(fig2, png2, 'Resolution', 300, 'BackgroundColor', 'current');
 exportgraphics(fig3, png3, 'Resolution', 300, 'BackgroundColor', 'current');
 exportgraphics(fig4, png4, 'Resolution', 300, 'BackgroundColor', 'current');
+for f = {png1, png2, png3, png4}, pad_png(f{1}, MARGIN_PX); end
 fprintf('\nFigure 1 saved to %s\n', png1);
 fprintf('Figure 2 saved to %s\n', png2);
 fprintf('Figure 3 saved to %s\n', png3);
 fprintf('Figure 4 saved to %s\n', png4);
+
+% Apply the poster palette and font sizes to one axes. Title and axis labels do NOT follow
+% XColor/YColor in MATLAB, so each is set by hand; miss them and they stay light-on-grey and
+% vanish. Font sizes are set here too, overriding the per-call values.
+function style_axes(ax, STY)
+    ax.Color      = STY.bg;
+    ax.XColor     = STY.fg;
+    ax.YColor     = STY.fg;
+    ax.GridColor  = STY.grid;
+    ax.GridAlpha  = 0.9;   % near-opaque, so the dividers read as clean white
+    ax.FontSize   = STY.tick;
+    ax.LineWidth  = 1.0;
+    ax.Box        = 'on';
+    ax.Title.Color  = STY.fg;  ax.Title.FontSize  = STY.title;
+    ax.XLabel.Color = STY.fg;  ax.XLabel.FontSize = STY.label;
+    ax.YLabel.Color = STY.fg;  ax.YLabel.FontSize = STY.label;
+end
+
+% Legends do not inherit the axes colours; left alone they stay dark-on-dark and vanish on grey.
+function style_legend(lg, STY)
+    set(lg, 'Color', STY.legbg, 'TextColor', STY.fg, 'EdgeColor', STY.fg);
+end
+
+% exportgraphics crops flush to the content, so titles and tick labels sit hard against the PNG
+% edge and look cramped the moment the image is dropped onto a poster next to anything else.
+% This adds a quiet border in whatever colour the image already has at its corner, so it follows
+% the palette automatically. Done afterwards rather than via exportgraphics' own Padding option,
+% which only offers 'tight' or 'figure' -- neither is a controllable number of pixels.
+function pad_png(file, px)
+    img = imread(file);
+    if size(img, 3) == 1, img = repmat(img, 1, 1, 3); end
+    bg = img(1, 1, :);                       % corner pixel = the exported background colour
+    [h, w, ~] = size(img);
+    out = repmat(bg, h + 2*px, w + 2*px, 1);
+    out(px+1:px+h, px+1:px+w, :) = img;
+    imwrite(out, file);
+end

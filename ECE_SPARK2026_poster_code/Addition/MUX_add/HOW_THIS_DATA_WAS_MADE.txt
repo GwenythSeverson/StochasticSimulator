@@ -1,0 +1,411 @@
+================================================================================================
+HOW THIS DATA WAS MADE                              ECE SPARK 2026 -- MUX scaled adder
+================================================================================================
+
+Companion to AND_mul/, uMUL_mul/ and uSADD_add/. Same operand style, same axes, same
+exhaustiveness standard, so all four units can be read against each other.
+
+This file explains what is being simulated, HOW THE ERROR MODEL WAS DECIDED (section 4 -- the
+main thing that is different about this unit), the algorithm behind every number, the trial
+ledger, and the honest limitations.
+
+FILES IN THIS FOLDER
+    MUX_Add_poster.cpp              generates all three CSVs. One source file, a GoogleTest case.
+    MUX_Add_poster_warmup.csv       figure 1 data -- zero-fault early termination
+    MUX_Add_poster_faults.csv       figure 2 data -- fault response, 0..36 flipped bits
+    MUX_Add_poster_sensitivity.csv  the exact single-flip damage table. NOT plotted; it is
+                                    reproduced as a table in section 4 below, because there are
+                                    only two possible values in it and a bar chart of "0 or
+                                    1/256" tells you less than the table does.
+    plot_MUX_Add_poster.m           reads the two plotted CSVs, writes the two PNGs.
+    MUX_Add_poster_warmup.png       figure 1
+    MUX_Add_poster_faults.png       figure 2
+
+TO REGENERATE
+    stochastic_computer.exe --gtest_filter=MuxAddPoster.*      (about 7 seconds)
+    then run plot_MUX_Add_poster.m in MATLAB
+Both write only into this folder. The .cpp locates itself with __FILE__, so it does not matter
+what directory the binary is launched from. Seeded with std::mt19937 rng(1337): every number
+reproduces byte for byte on re-run.
+
+EVERYTHING HERE IS MEASURED AND ENVIRONMENT-AGNOSTIC. Every number comes from clocking real
+streams through a real Adder, and the x axis throughout is BITS FLIPPED -- not an upset rate,
+not an orbit. What is characterised is how the circuit RESPONDS to a given number of upsets.
+Multiplying that by a LEO or GEO rate is a separate, later step and is not done here.
+
+
+================================================================================================
+1. WHAT IS BEING SIMULATED
+================================================================================================
+
+One multiplexer.
+
+        a ---->|\
+               | \
+        b ---->|  |----> out          out = sel ? a : b
+               | /
+        sel -->|/
+
+With a 0.5 select stream this is the standard stochastic SCALED ADDER: each cycle the MUX picks
+one of the two operands at random, so over many cycles
+
+        out  =  0.5 * a  +  0.5 * b  =  (a + b) / 2      IN EXPECTATION
+
+and "in expectation" is the whole character of the unit. Every cycle it routes ONE input and
+DISCARDS the other. The discarded bit carried real information about its operand; throwing it
+away is what turns an exact quantity into a sampled one, and it is why this unit has both a
+correlation requirement and a variance floor that more cycles only slowly erode.
+
+THE OPERANDS HERE
+    a   = 0.5 as a 256-bit unary stream        128 ones
+    b   = 0.5 as a 256-bit unary stream        128 ones
+    sel = 0.5 as a 256-bit unary stream        128 ones
+    intended result (0.5 + 0.5)/2 = 0.5        128 output ones
+
+WHY 0.5 + 0.5 AND WHY N = 256. Both match the multiplier folders so the four figures are
+comparable; 0.5 is the maximum-entropy operand at this stream length, C(256,128) = 5.77e75
+arrangements each, and the result sits mid-scale so the error has room to move in both
+directions without clipping. N = 256 also makes every region below come out to exactly 32,
+which keeps the combinatorics legible.
+
+
+================================================================================================
+2. THE FILTER -- WHAT COUNTS AS A TRIAL, AND WHY ONE IS NEEDED
+================================================================================================
+
+Three arbitrary 0.5 streams do NOT give 0.5. The MUX is only a correct adder when a, b and sel
+are mutually uncorrelated; feed it correlated streams and it reports something else. So, exactly
+as the AND-gate multiplier has to filter for "overlap exactly 64", this file filters for
+decorrelation, in the strongest available sense:
+
+    A TRIAL IS KEPT ONLY IF EACH OF THE 8 COMBINATIONS OF (a, b, sel) OCCURS EXACTLY 32 TIMES.
+
+That is the maximum-entropy case and the one the unit is designed for. Checked by RUNNING the
+gate, not predicted: out = 1 in exactly four of the eight regions, so 4 x 32 = 128 output ones =
+0.5 exactly, and the .cpp asserts it on four independently shuffled builds before doing anything
+else.
+
+WHY FILTER AT ALL. The poster asks what radiation does to a CORRECT addition. Mixing in trials
+that were already wrong from correlation would smear that answer together with a different
+phenomenon and neither would be readable. Starting from an exactly correct 0.5 means every
+deviation in figure 2 is attributable to the injected faults and to nothing else -- which is
+visible as the zero-flip column being exactly 0.5 with zero spread.
+
+NOTE FOR THE POSTER: uSADD next door needs NO such filter. Its answer is floor(total ones / 2),
+which does not mention correlation at all, so all 3.3e151 arrangements work. Having to filter is
+itself a cost of the MUX and worth saying out loud.
+
+
+================================================================================================
+3. THE COLLAPSE -- WHY THIS IS EXHAUSTIVELY ENUMERABLE
+================================================================================================
+
+A MUX is memoryless. Cycle i's output depends on cycle i's three bits and nothing else, so
+
+        output ones  =  SUM over the 8 regions of (cells in that region) x out(region)
+
+and WHERE the cells sit is never consulted. Label a region r = 4a + 2b + sel:
+
+        r   a b sel   out = sel ? a : b
+        0   0 0  0    b = 0
+        1   0 0  1    a = 0
+        2   0 1  0    b = 1    <- emits
+        3   0 1  1    a = 0
+        4   1 0  0    b = 0
+        5   1 0  1    a = 1    <- emits
+        6   1 1  0    b = 1    <- emits
+        7   1 1  1    a = 1    <- emits
+
+A fault on a cycle is a 3-bit mask m over (a, b, sel): the cycle moves from region r to region
+r XOR m and its output becomes out(r XOR m). So every flip layout, however astronomically many
+there are, collapses onto the 8x8 table of (region, mask) counts.
+
+
+================================================================================================
+4. HOW THE ERRORS WERE DECIDED       <-- THE SECTION TO READ
+================================================================================================
+
+4.1 WHAT IS FLIPPABLE, AND WHY THE SELECT STREAM IS IN
+------------------------------------------------------
+    a stream     256 bits
+    b stream     256 bits
+    sel stream   256 bits
+    ---------------------
+    total        768 bits
+
+THE SELECT STREAM IS INCLUDED DELIBERATELY, AND IT IS THE POINT OF THIS FILE. It is easy to
+think of sel as a "control" signal that is somehow not part of the data and can be assumed
+correct. It is not. It is a 256-bit unary stream generated by an SNG exactly like the operands,
+stored and routed in exactly the same flip-flops and wires, and exposed to exactly the same
+particles. Flipping one select bit re-routes that cycle to the other operand, and if the two
+operands disagree that cycle -- which they do half the time -- the output changes.
+
+So the MUX adder's operand surface is 768 bits, not 512. That is FIFTY PERCENT more exposed area
+than the AND-gate multiplier (512) and than uSADD (512), purely to carry a stream whose only job
+is to choose. Counting it is the difference between an honest fault model and a flattering one.
+
+NOTHING ELSE IS FLIPPABLE, and that is not an omission. The unit is one combinational gate: it
+has no registers, no counter, no accumulator, no RNG state. The only sequential state anywhere
+is in the stream generators upstream, which are not part of the multiplexer. Compare uMUL (an
+8-bit operand register plus an RNG index) and uSADD (a 2-bit accumulator plus a 2-bit PC bus).
+THE MUX HAS NO STATE TO CORRUPT -- that is genuinely its best property, and it is why this
+folder has no equivalent of uMUL's register figure.
+
+4.2 WHAT ONE FLIP ACTUALLY DOES -- ALL 24 SITE CLASSES, MEASURED
+----------------------------------------------------------------
+A single flip is fully described by (which region the struck cycle was in, which of the three
+bits was struck): 8 x 3 = 24 classes covering all 768 sites, 32 sites each. Every row below was
+obtained by building a real decorrelated trial, flipping one real bit in that region, and
+re-running the gate; the .cpp asserts the measured delta against the region table.
+
+    region  a b sel |  struck sel      struck b        struck a
+    ------------------------------------------------------------------
+      0     0 0  0  |   0 -> 0   .      0 -> 1  +1      0 -> 0   .
+      1     0 0  1  |   0 -> 0   .      0 -> 0   .      0 -> 1  +1
+      2     0 1  0  |   1 -> 0  -1      1 -> 0  -1      1 -> 1   .
+      3     0 1  1  |   0 -> 1  +1      0 -> 0   .      0 -> 1  +1
+      4     1 0  0  |   0 -> 1  +1      0 -> 1  +1      0 -> 0   .
+      5     1 0  1  |   1 -> 0  -1      1 -> 1   .      1 -> 0  -1
+      6     1 1  0  |   1 -> 1   .      1 -> 0  -1      1 -> 1   .
+      7     1 1  1  |   1 -> 1   .      1 -> 1   .      1 -> 0  -1
+
+TWO THINGS FALL OUT OF THAT TABLE, and they are the whole error model.
+
+  (1) A SINGLE FLIP HAS ONLY TWO POSSIBLE EFFECTS: nothing at all, or exactly +/- 1/256.
+      There is no gradation. No bit on this surface is worth more than any other bit. That is
+      the flat risk profile of a fully unary unit, and it is the direct opposite of uMUL, where
+      one of its 264 bits is worth 64 times what the other 263 are worth.
+
+  (2) EXACTLY HALF OF EVERY STREAM IS INERT. Reading the table by column:
+
+          an `a` flip   matters only when sel = 1   (otherwise b is being routed)
+          a  `b` flip   matters only when sel = 0
+          a `sel` flip  matters only when a and b DISAGREE
+
+      Each condition holds in 4 of the 8 regions, so each stream contributes 128 live and 128
+      inert sites: 384 live and 384 inert out of 768. Half of every upset that lands on this
+      unit does literally nothing.
+
+      THIS IS A REAL FORM OF FAULT MASKING and it should be claimed as one -- but carefully. It
+      does NOT mean the MUX is twice as robust as its site count suggests, because the surface
+      is 1.5x larger to begin with. 384 live sites against the AND gate's 512 and uSADD's 512.
+
+4.3 THE FLIP-PLACEMENT MODEL, AND ITS ONE ASSUMPTION
+-----------------------------------------------------
+f flips are placed UNIFORMLY AT RANDOM over the 768 sites, without replacement, and treated as
+independent. Every site is equally likely.
+
+That uniformity is defensible here in a way it is not for uMUL, because all 768 sites are the
+same KIND of thing: one bit of one unary stream, held in the same sort of flip-flop, worth the
+same 1/256 if it is live. There is no register-versus-stream asymmetry to get wrong. The one
+place it is still an approximation is clustering -- see section 9.
+
+The flip count f is a STRESS AXIS, not a rate. It says "given f upsets landed here", not "f
+upsets are expected". No upset rate appears anywhere in this folder.
+
+4.4 THE ALGORITHM -- PER-REGION GENERATING FUNCTIONS
+-----------------------------------------------------
+One cell in region r can take any of the 8 flip masks m, costing popcount(m) flips and
+contributing OUT[r XOR m] output ones. That is a tiny polynomial in (flips, ones). A region of
+32 such cells is the 32-fold convolution of it, computed by repeated squaring; the whole stream
+is the convolution of the 8 region polynomials. The result is
+
+        dp[f][k] = the exact number of flip layouts using f flips that leave k output ones.
+
+THE ARITHMETIC GUARANTEE. Summed over all outcomes, the layout count at each level must be
+C(768, f) exactly, since every assignment of masks to cells with total cost f is one way of
+choosing f of the 768 bits. The .cpp ASSERTS this at every flip level (EXPECT_NEAR(wsum, 1.0,
+1e-6)), so a broken enumeration fails the build rather than shipping a wrong figure.
+
+
+================================================================================================
+5. THE TRIAL LEDGER
+================================================================================================
+
+STEP 0 -- THE LITERAL EXPERIMENT
+    "Every decorrelated arrangement of the three streams, with every possible layout of 0 to 36
+    flipped bits across the 768 that carry them."
+
+        decorrelated arrangements     256! / (32!)^8            = 10^223.57
+        flip layouts, 0..36, on 768   SUM C(768,f)              = 9.17e61
+        ------------------------------------------------------------------------
+        TOTAL LITERAL TRIALS                                    = 10^285.53
+
+    For scale: the AND-gate multiplier's equivalent is 10^206.97 and uMUL's is 10^120.36. The
+    MUX adder has the LARGEST literal trial space of the three, entirely because of the third
+    stream.
+
+STEP 1 -- FIX THE OPERANDS AND FILTER FOR DECORRELATION.   Scope, not compression. Cost: the
+    results are specific to this operand triple. See section 9.
+
+STEP 2 -- COLLAPSE THE ARRANGEMENTS.       DIVIDE BY 10^223.57
+    Section 3: the output depends only on the region COUNTS, and the filter fixes those at 32
+    each. Every decorrelated arrangement is literally the same experiment. Lossless.
+
+STEP 3 -- COLLAPSE THE FLIP LAYOUTS BY OUTCOME.      DOWN TO 1,369 ROWS
+    Section 4.4. At flip level f the reachable outcomes are at most 2f+1 (each flip moves the
+    answer by at most one output bit in either direction), and the layout count reaching each is
+    exact. 1,369 (f, k) rows cover the whole sweep.
+
+STEP 4 -- MEASURE, DO NOT ASSUME.
+        4 filter-validation runs        real gate runs on shuffled decorrelated builds
+       48 sensitivity runs              24 site classes x (clean + faulted)
+      740,000 Monte Carlo runs          20,000 genuinely random trials at each of 37 levels
+    -----------------------------------------------------------------------------------
+      740,052 REAL 256-cycle MUX simulations
+              (189,453,312 clock cycles)
+
+    COMPRESSION vs the literal experiment:  about 10^280 : 1, with no approximation anywhere.
+    Runtime: about 7 seconds.
+
+THE CHECK THAT MAKES IT CREDIBLE. The forward Monte Carlo is genuinely random -- fresh
+decorrelated streams, f of the 768 sites chosen uniformly by partial Fisher-Yates, flipped for
+real, gate re-run -- with no steering toward any outcome. Its histogram ships in the CSV as
+MC_Probability beside the enumerated Probability. The worst disagreement across all 37 levels is
+0.0107, which is a few standard errors at 20,000 draws across ~1,850 compared cells, and it is
+asserted under 0.02.
+
+
+================================================================================================
+6. FIGURE 1 -- ZERO-FAULT EARLY TERMINATION       (MUX_Add_poster_warmup.png)
+================================================================================================
+
+THE QUESTION. With no faults, how wrong is the answer if you stop the stream early?
+
+THE ALGORITHM. The four out=1 regions hold 4 x 32 = 128 of the 256 cycles, so truncating at L
+asks one question: how many of those 128 emitting cells landed in the first L cycles? Across all
+arrangements that is a HYPERGEOMETRIC draw,
+
+        P(j output ones in the first L) = C(128,j) * C(128,L-j) / C(256,L)
+
+exact over every arrangement in at most L+1 terms. 262 classes cover the whole space.
+
+THE MEASURED CURVE
+    L            2        4        8       16       32       64      128      256
+    MeanAbsErr   0.2490   0.1860   0.1346   0.0951   0.0654   0.0430   0.0249   0.0000
+    ratio                 1.339    1.382    1.415    1.453    1.522    1.730     --
+
+HOW TO READ IT. Monotone decreasing at every step, and exactly 0 at L = 256 where the only class
+left is the whole filtered trial. The middle of the curve sits right on sqrt(2) = 1.414 per
+doubling, which is the classic 1/sqrt(L) sampling law -- exactly what a unit that SAMPLES rather
+than counts should produce. The tail accelerates (1.52, then 1.73) for the same reason the AND
+gate's does: this is a hypergeometric draw from a finite population of 256 cycles, so the
+finite-population correction squeezes the last of the uncertainty out as L approaches N.
+
+NOTE WHAT IS ABSENT. uMUL's warm-up has a non-monotone dip at L = 4 caused by the Gray-code
+ordering of its Sobol sequence. There is no low-discrepancy sequence anywhere in a MUX -- no RNG
+state at all -- so there is nothing here to produce that structure and nothing to explain. The
+curve is as plain as a convergence curve gets.
+
+MeanEstimate is exactly 0.5 at every length, so truncation on this unit is unbiased too; it costs
+variance only.
+
+
+================================================================================================
+7. FIGURE 2 -- FAULT RESPONSE                     (MUX_Add_poster_faults.png)
+================================================================================================
+
+X is flips over the 768-bit surface at 0, 1, 2, 4, 8, 16, 32 on a LOG axis; zero is drawn at
+x = 0.5 and labelled "0", since log(0) does not exist -- its position is cosmetic, its height
+real. Y is the fraction of ones in the answer, against an intended 0.5.
+
+    BLUE SPINE   full reach, worst under-shoot to worst over-shoot
+    BLUE CAPS    the exact extreme outcomes
+    RED DASHES   the equal-tailed middle 90% (5th and 95th percentiles), not forced symmetric
+    BLUE DOT     trial-weighted mean
+
+THE MEASURED NUMBERS
+    flips    mean       min        max        5th pct    95th pct
+        0    0.500000   0.500000   0.500000   0.500000   0.500000
+        1    0.500000   0.496094   0.503906   0.496094   0.503906
+        2    0.500000   0.492188   0.507812   0.492188   0.507812
+        4    0.500000   0.484375   0.515625   0.492188   0.507812
+        8    0.500000   0.468750   0.531250   0.488281   0.511719
+       16    0.500000   0.437500   0.562500   0.480469   0.519531
+       32    0.500000   0.375000   0.625000   0.476562   0.523438
+       36    0.500000   0.359375   0.640625
+
+THE MEAN NEVER MOVES. Exactly 0.500000 at every flip level. From the section 4.2 table, 6 of the
+24 site classes push the answer up and 6 push it down, at identical size and identical
+probability, so faults on this unit are UNBIASED: they add variance, not drift. All four units
+in this poster share that property, each for its own reason.
+
+THE REACH IS EXACTLY +/- f/256. Every live flip is worth one output bit and the extremes are the
+layouts where all f flips land live and pull the same way: 36 flips give 0.5 +/- 36/256 =
+0.359375 to 0.640625, which is what the CSV records. There is no accelerating tail and no
+catastrophic outcome anywhere on this surface -- the worst thing 36 upsets can do is 0.14, and
+they have to all cooperate to do it.
+
+THE BAND IS SYMMETRIC AND STAYS TIGHT. 0.477 to 0.523 at 32 flips. Compare uMUL, whose band goes
+violently lopsided once its register starts getting hit. Nothing here is bimodal, because
+nothing here is a binary register.
+
+
+================================================================================================
+8. CSV COLUMN REFERENCE
+================================================================================================
+
+MUX_Add_poster_warmup.csv  -- one row per truncation length
+    N                   truncation point in cycles (2, 4, ... 256)
+    MeanEstimate        arrangement-weighted mean of j/L. Exactly 0.5 at every length.
+    MeanAbsError        arrangement-weighted mean of |j/L - 0.5|.    <- FIGURE 1's Y AXIS
+    MinEstimate         lowest j/L over all classes at this length
+    MaxEstimate         highest j/L over all classes at this length
+    Classes             hypergeometric classes summed at this length
+    Log10Arrangements   223.57 -- log10 of 256!/(32!)^8, the decorrelated arrangement count
+
+MUX_Add_poster_faults.csv  -- one row per (flip level, reachable outcome)
+    BitsFlipped         f, injected flips over the 768-bit surface  <- FIGURE 2's X AXIS
+    OutputOnes          k, measured ones in the faulted output
+    OutputFraction      k/256                                       <- FIGURE 2's Y AXIS
+    ErrorPerN           (k - 128)/256, the signed error
+    Probability         exact share of all layouts at this f landing on k
+    MC_Probability      the same share as MEASURED by 20,000 random trials
+    MC_Trials           20000
+    LevelRealTrials     real gate simulations at this flip level
+    Log10TrialCount     log10 of the raw layout count reaching this outcome
+
+MUX_Add_poster_sensitivity.csv  -- 24 rows, one per single-flip site class, all 768 bits covered
+    Site                e.g. sel_in_region_2
+    Region, A, B, Sel   which of the 8 (a,b,sel) combinations the struck cycle was in
+    BitStruck           a, b or sel
+    SiteCount           32 -- how many of the 768 bits this row stands for
+    ProbPerSingleFlip   32/768 = 0.0417
+    OutBefore/OutAfter  the output bit on that cycle, before and after
+    DeltaOnes           -1, 0 or +1. Reproduced as the table in section 4.2.
+    DeltaFraction       DeltaOnes/256
+
+
+================================================================================================
+9. HONEST LIMITATIONS
+================================================================================================
+
+ -  ONE OPERAND TRIPLE. Everything is 0.5 + 0.5 with a 0.5 select. The unbiasedness of section 7
+    follows from the 8 regions being equal, which is specific to this triple. At 0.9 + 0.1 the
+    regions are lopsided and the fault response would be too.
+
+ -  THE DECORRELATION FILTER IS THE BEST CASE. Real operands are not perfectly decorrelated, and
+    a MUX fed correlated streams is already wrong before any radiation arrives. This folder
+    measures fault response from an exactly-correct starting point, which separates the two
+    effects cleanly but should NOT be read as a total error budget. The behaviour test
+    (usadd_vs_mux.csv) covers the correlation term separately and finds MUX RMSE running 0.0127
+    to 0.0212 depending on regime -- an order of magnitude larger than anything 36 flips do here.
+
+ -  UNIFORM, INDEPENDENT FLIP PLACEMENT. Real single-event upsets cluster. A multi-bit upset
+    landing on two adjacent bits of the same stream is more likely than this model says. The
+    uniformity across the three streams is on firmer ground here than in the multiplier folders
+    (section 4.3) because every site is the same kind of flip-flop.
+
+ -  THE THREE STREAMS ARE TREATED AS EQUALLY EXPOSED. If in a real design the select stream were
+    shared across many MUXes -- one 0.5 generator feeding a whole adder tree -- then a single
+    upset in it would corrupt every adder at once, and its effective weight would be far higher
+    than 1/3 of the surface. That sharing is a plausible and cheap design choice, and this model
+    does not capture it. It is the most likely way the real MUX adder is worse than this figure.
+
+ -  NO STATE, SO NO STATE FAULTS. Correct for a bare multiplexer, but the SNGs that produce the
+    three streams do have state, and they are outside the boundary drawn here. The same caveat
+    applies to the AND-gate folder.
+
+ -  NO AREA OR POWER COMPARISON. A MUX is one gate; uSADD needs a parallel counter and an
+    accumulator. That cost is real and is not measured here.
+================================================================================================

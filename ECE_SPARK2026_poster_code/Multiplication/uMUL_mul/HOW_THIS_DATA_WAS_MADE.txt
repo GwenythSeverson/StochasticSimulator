@@ -345,11 +345,42 @@ THE CURVE IS NOT MONOTONE, AND THAT IS REAL, NOT NOISE
         n        0    1    2    3    4    5    6    7    8
         G        0    1    1    1    2    3    3    3    4
 
-    G is exact at every multiple of 4 -- G(128, 4m) = 2m -- and lopsided in between. At L = 4
-    every reachable prefix count n = 1, 2, 3 gives G = 1, i.e. exactly 1/4 = 0.25, so only the
-    two end classes n = 0 and n = 4 contribute any error at all. That is a genuine alignment
-    between the truncation point and the low-discrepancy sequence, not a fluke. At L = 8 the
-    n = 1,2,3 classes give 1/8 = 0.125, off by 0.125, and the error jumps.
+    G is exact at every multiple of 4 -- G(128, 4m) = 2m -- and lopsided in between. Worked out
+    class by class, the whole drop-and-rebound is visible in one column:
+
+        L = 4                                        L = 8
+        n   G   est      |err|    P                   n   G   est      |err|    P
+        0   0   0.0000   0.2500   0.06103             0   0   0.0000   0.2500   0.00349
+        1   1   0.2500   0.0000   0.24999             1   1   0.1250   0.1250   0.02953
+        2   1   0.2500   0.0000   0.37796             2   1   0.1250   0.1250   0.10761
+        3   1   0.2500   0.0000   0.24999             3   1   0.1250   0.1250   0.22047
+        4   2   0.5000   0.2500   0.06103             4   2   0.2500   0.0000   0.27780
+                                                      5   3   0.3750   0.1250   0.22047
+                                                      6   3   0.3750   0.1250   0.10761
+                                                      7   3   0.3750   0.1250   0.02953
+                                                      8   4   0.5000   0.2500   0.00349
+        mean abs error   0.030516                     mean abs error   0.091147
+
+    THE ONE NUMBER THAT EXPLAINS IT: the share of trials landing EXACTLY on 0.25 is 87.79% at
+    L = 4 and only 27.78% at L = 8.
+
+    At L = 4, THREE of the five reachable classes -- n = 1, 2 and 3, which between them hold 88%
+    of the arrangements -- all give G = 1, and 1/4 is exactly 0.25. Only the two rare end classes
+    miss. That is a genuine alignment between the truncation point and the low-discrepancy
+    sequence: G is exact at multiples of 4, and at L = 4 the middle of the hypergeometric sits
+    right on one.
+
+    At L = 8 the same three classes still give G = 1, but now 1/8 = 0.125, which is off by 0.125.
+    Only n = 4 is exact, and it holds 28% instead of 88%. The error triples. Nothing got worse
+    about the multiplier between those two truncation points -- the stream simply stopped being
+    read at a length where the Sobol partial sum happens to be exact.
+
+    THIS IS A PROPERTY OF THE SEQUENCE, NOT A BUG. Any low-discrepancy generator has truncation
+    lengths where its partial sums land exactly and lengths where they do not, and the effect is
+    largest when L is small enough that a handful of classes carry all the probability. It fades
+    as L grows and more classes share the mass, which is why the curve is clean from L = 8 on.
+    An early-terminating design could exploit it deliberately: stopping at a multiple of 4 is
+    measurably better here than stopping one cycle later.
 
     From L = 8 onward the curve is clean and monotone, and it falls FASTER than the classic
     1/sqrt(L) law: the successive ratios are 1.65, 1.56, 1.58, 1.75 against sqrt(2) = 1.414.
@@ -367,7 +398,7 @@ flatten the curve that is the point of the figure.
 
 
 ================================================================================================
-6. FIGURE 2 -- FAULT RESPONSE                    (uMUL_poster_faults.csv/.png)
+6. FIGURES 2 AND 3 -- FAULT RESPONSE   (uMUL_poster_faults.csv -> _intact.png / _damaged.png)
 ================================================================================================
 
 THE QUESTION. Given a multiplication that was exactly correct, what does radiation damage to
@@ -509,137 +540,98 @@ THE EXTREMES, AND WHY ENUMERATION IS THE ONLY WAY TO REACH THEM
 
 
 ================================================================================================
-6b. FIGURE 3 -- THE EXPLAINER                    (uMUL_poster_failuremap.png)
+6b. FIGURE 4 -- WHERE THE DAMAGE COMES FROM      (uMUL_poster_register.png)
 ================================================================================================
 
-Figures 1 and 2 report WHAT happens. Figure 3 exists to answer the question figure 2 always
-provokes at a poster: "why does the band fall off a cliff, and where is it actually failing?"
-It adds no new experiment -- both panels are drawn from data already described above.
+Figures 2 and 3 report WHAT happens. This one reports WHERE, and it is the panel that explains
+figure 3's shape. It adds no new experiment: every bar is a measured gate run, straight from
+uMUL_poster_sensitivity.csv.
 
-TOP PANEL -- THE WHOLE DISTRIBUTION, NOT JUST ITS SUMMARY
-    A heat map of every row of uMUL_poster_faults.csv: x is the flip level, y is the answer,
-    colour is Probability on a LOG scale spanning 1e-12 to 1. Figure 2 compresses each column of
-    this into five numbers; here the column is shown whole.
+WHAT IS PLOTTED. Each of the 8 value-register bits, as the change it makes to the answer when it
+alone is flipped, with the stream bit's +/- 1/256 drawn as a dashed reference. Bits 0 through 6
+rise geometrically -- +0.004, +0.004, +0.008, +0.016, +0.031, +0.062, +0.125 -- because setting
+bit b adds 2^b to an operand of 128. Bit 7 goes the other way and goes all the way.
 
-    The shape is two regimes, orders of magnitude apart in probability:
+--- WHY BIT 7 IS DIFFERENT IN KIND, NOT DEGREE -------------------------------------------------
 
-        THE RIDGE   a bright, narrow band pinned at 0.25. Trials whose operand register was not
-                    struck -- the answer moves only by stream-flip quanta of 1/256. At f = 8
-                    this is 78% of all trials.
-        THE SHELF   a broad, dim plateau running from about 0.23 all the way down to zero.
+value = 128 = 1000_0000 has EXACTLY ONE BIT SET. So a register strike gives
+value' = 128 XOR mask(S), and that splits cleanly in two:
 
-    WHAT THE SHELF ACTUALLY IS -- AND IT IS NOT "THE REGISTER WAS HIT"
-        value = 128 = 1000_0000 has exactly ONE bit set. A register strike gives
-        value' = 128 XOR mask(S), and that splits cleanly in two:
+    bit 7 SURVIVES   value' = 128 + mask(S) in [128,255]  ->  answer >= 0.25
+    bit 7 DIES       value' = mask(S\{7})   in [0,127]    ->  answer <  0.25
 
-            bit 7 SURVIVES   value' = 128 + mask(S) in [128,255]  ->  answer >= 0.25
-            bit 7 DIES       value' = mask(S\{7})   in [0,127]    ->  answer <  0.25   <- SHELF
+Because the 128 Sobol points the run consumes are exactly the even numbers 0, 2, ... 254, the
+output is G(value',128) = ceil(value'/2), i.e. answer ~ value'/512. So the second case is one
+sentence: KILL THE MSB AND THE OPERAND BECOMES WHATEVER THE SURVIVING LOW BITS SAY.
 
-        Because the 128 Sobol points consumed are exactly the even numbers 0,2,...,254, the
-        output is G(value',128) = ceil(value'/2), i.e. answer ~ value'/512. So the shelf is one
-        sentence: KILL THE MSB AND THE OPERAND BECOMES WHATEVER THE SURVIVING LOW BITS SAY.
+    no other register bit struck  ->  value' = 0     ->  answer exactly 0
+    one other bit b struck        ->  value' = 2^b   ->  answer ~ 2^b / 512
+    several                       ->  subset sums of {1,2,4,...,64}
 
-            no other register bit struck  ->  value' = 0     ->  answer exactly 0
-            one other bit b struck        ->  value' = 2^b   ->  answer ~ 2^b / 512
-            several                       ->  subset sums of {1,2,4,...,64}
+That is why figure 3's damaged population reaches all the way to 0.000 and is broad rather than
+concentrated: the surviving low bits give about 128 landing places between 0 and 127/512 = 0.248.
 
-        It is BROAD because those subset sums give about 128 landing places between 0 and
-        127/512 = 0.248, and DIM because the probability spreads across all of them.
+THE POPULATION THAT GOES DOWN IS SMALL AND SPECIFIC. Its mass is P(bit 7 struck) = f/264 -- ONE
+site out of 264 -- not the register-hit probability. Measured against the CSV, P(answer < 0.23)
+matches f/264 to four decimals at every flip level. Only 13% to 20% of register hits land below
+0.25; the rest push the answer UP.
 
-        THE SHELF'S MASS IS P(bit 7 struck) = f/264 -- ONE SITE OUT OF 264 -- NOT the
-        register-hit probability. Measured against the CSV, P(answer < 0.23) matches f/264 to
-        four decimals at every flip level. Only 13% to 20% of register hits land below 0.25;
-        the rest push the answer UP, into the fan above the ridge. An earlier revision of this
-        file described the shelf as "trials whose register did not survive", which is wrong by
-        roughly a factor of five in mass and wrong in direction for most of that population.
+    (An earlier revision of this file described the low tail as "trials whose register did not
+     survive". That was wrong by roughly a factor of five in mass and wrong in direction for most
+     of that population. The correct statement is the one above: it is the MSB, not the register.)
 
-    Overlaid: the 5th and 95th percentiles from figure 2, and the mean.
-
-    NOW THE CLIFF IS OBVIOUS. The 5th percentile sits on the bottom edge of the RIDGE for as
-    long as the shelf holds less than 5% of the trials, because everything on the shelf is
-    inside the discarded tail. At f = 14 the shelf crosses 5% and the percentile has to sit
-    inside the shelf instead -- and since the shelf is broad and nearly flat, "5% into the
-    shelf" is a very long way down. The red line visibly falls off the ridge and slides down the
-    shelf. Marked on the figure with a dotted line at f = 14.
-
-    The heat map also makes the two facts of section 6 visible at a glance: the ridge never
-    moves off 0.25 (the mean is unbiased) and the top edge climbs steadily (the 95th percentile
-    rises smoothly while the 5th collapses).
-
-BOTTOM LEFT -- WHERE THE DAMAGE COMES FROM, DRAWN TO SCALE
-    All 264 operand bits as the change each makes when it alone is flipped, straight from
-    uMUL_poster_sensitivity.csv. Bar WIDTH is the number of sites the bar stands for, so bar
-    AREA is that group's share of the risk. The result is one enormous flat bar of 256 stream
-    bits doing nothing at +/- 1/256, and an 8-bit sliver at the right holding everything. The
-    sliver is 3.03% of the width. That single image is the uMUL trade-off.
-
-BOTTOM RIGHT -- THAT SLIVER, EXPANDED
-    The same 8 register bits at equal width so they can be read, with the stream bit's +/- 1/256
-    drawn as a dashed reference. Bits 0 through 6 rise geometrically -- +0.004, +0.004, +0.008,
-    +0.016, +0.031, +0.062, +0.125 -- because setting bit b adds 2^b to an operand of 128.
-    Bit 7 goes the other way and goes all the way: value = 128 has exactly ONE bit set, so
-    flipping bit 7 clears the operand outright, the strict ">" comparator can never fire again,
-    and the answer is a hard zero. One upset there is worth 64 stream upsets.
-
-    NOTE THE ASYMMETRY IN THE BAR CHART, because it explains the asymmetry in figure 2's band.
-    Seven of the eight register bits push the answer UP and only one pushes it DOWN -- but that
-    one is worth more than the other seven combined. Small numbers of flips therefore lean the
-    band high; once bit 7 becomes likely, the band leans hard low.
+SEVEN BITS UP, ONE DOWN, AND THEY BALANCE EXACTLY. This is what makes figure 3's mean land on
+0.25. At f = 1 it is provable by hand: one struck register bit gives eight equally likely
+operands 0, 192, 160, 144, 136, 132, 130, 129, whose answers are 0, 96, 80, 72, 68, 66, 65, 65
+out of 256. Those sum to 512, so the mean is 64/256 = 0.25 exactly. The single catastrophic zero
+is worth precisely as much as the seven upward pushes combined -- which is also why the MEDIAN
+(0.266 to 0.273) sits well above the mean, and why the mean must not be read as typical.
 
 
 ================================================================================================
-6e. FIGURE 4 -- THE DECOMPOSITION THAT REMOVES THE CLIFF   (uMUL_poster_decomposed.png)
+6e. WHY FIGURES 2 AND 3 ARE SEPARATE PLOTS
 ================================================================================================
 
-THE PROBLEM. Figure 2's 5th percentile falls 0.164 between f = 13 and f = 14 and nothing in the
-hardware changes there. Section 6b explains why: the distribution is a MIXTURE, and a quantile
-over a mixture jumps the instant the mixing weight crosses the tail fraction. That is a property
-of quantiles, not of uMUL. Figure 2 is not WRONG -- it is the true marginal distribution -- but
-its summary statistic is the wrong instrument for a mixture.
+THE PROBLEM. An earlier revision drew both populations as ONE whisker per flip level. Its 5th
+percentile fell 0.164 between f = 13 and f = 14, and nothing in the hardware changes there.
 
-YOU CANNOT FIX IT BY MOVING THE THRESHOLD. The shelf's mass is f/264, which grows linearly and
-will cross ANY tail fraction eventually. A 1% tail moves the cliff to f = 3; a 10% tail moves it
-to f = 30. The cliff is not removable by choosing a better number.
+WHY. The merged distribution is a MIXTURE of two populations, and a quantile over a mixture jumps
+discontinuously the instant the mixing weight crosses the tail fraction. The low tail's mass is
+f/264, which passes 5% at f = 13.2. That is a property of quantiles, not of uMUL.
 
-THE FIX: STOP MIXING. Report the two populations separately plus the weight that mixes them.
-Three curves replace one, and all three are smooth:
+YOU CANNOT FIX IT BY MOVING THE THRESHOLD. f/264 grows linearly and will cross ANY tail fraction
+eventually: a 1% tail moves the cliff to f = 3, a 10% tail moves it to f = 30. The cliff is not
+removable by choosing a better number. It is removable only by not mixing.
 
-    curve                          f = 1              f = 36           largest single-f step
-    operand intact   (band)        0.246 - 0.254      0.230 - 0.270       0.003906
-    operand damaged  (band)        0.000 - 0.375      0.000 - 0.402       0.003906
-    P(operand damaged)             0.030              0.696              (smooth, monotone)
+THE FIX: REPORT THE POPULATIONS SEPARATELY. Conditioned, both are smooth:
+
+    plot                             f = 1              f = 36           largest single-f step
+    figure 2, operand intact         0.246 - 0.254      0.230 - 0.270       0.003906
+    figure 3, operand damaged        0.000 - 0.375      0.000 - 0.402       0.003906
     ------------------------------------------------------------------------------------
-    mixed, i.e. figure 2 (band)    0.246 - 0.254      0.004 - 0.387       0.164062  <- cliff
+    the merged version (deleted)     0.246 - 0.254      0.004 - 0.387       0.164062  <- cliff
 
-0.003906 is 1/256 -- the output quantisation floor. The conditional bands are as smooth as this
-data can possibly be. The .m prints these three step sizes on every run so the claim is checked
-rather than asserted.
+0.003906 is 1/256, the output quantisation floor. The conditional bands are as smooth as this
+data can possibly be. Both numbers were measured before the split was chosen, not assumed.
 
-WHICH SPLIT, AND WHY NOT THE MSB. Section 6b establishes that BIT 7 is what separates the modes,
-so splitting on ProbMSBIntact / ProbMSBLost is the mechanically exact choice, and those columns
-are in the CSV. It is NOT the better split for these bands, though. Conditioned on MSB-lost the
+WHICH SPLIT, AND WHY NOT THE MSB. Section 6b establishes that BIT 7 is what separates the two
+modes, so splitting on ProbMSBIntact / ProbMSBLost is the mechanically exact choice, and those
+columns are in the CSV. It is NOT the better split for these bands: conditioned on MSB-lost the
 answer is a subset sum of the surviving low bits, which is lumpy, and the band edges then step by
 up to 0.027 as individual subset sums cross the 5% line. Splitting on "was any register bit
-struck" gives 0.0039. So: MECHANISM FROM THE MSB, BANDS FROM THE REGISTER. Both were measured
-before choosing; the numbers are above.
+struck" gives 0.0039. So: MECHANISM FROM THE MSB (figure 4), BANDS FROM THE REGISTER (figures 2
+and 3). Both were measured before choosing; the numbers are above.
 
-WHAT THE FIGURE SHOWS
-    TOP     two whiskers per flip level, offset side by side. Green = operand intact, orange =
-            operand damaged. Thick caps are that population's middle 90%; the thin spine is its
-            full reach. The green band widens slowly and stays on 0.25. The orange band is broad
-            from ONE flip onward and its floor is pinned at 0.000 the whole way across -- which
-            is the real statement: when the operand dies it can die completely, and that is true
-            at f = 1 just as much as at f = 36.
-    BOTTOM  P(operand damaged), the mixing weight, with figure 2's cliff marked. The curve passes
-            straight through it without a kink. Nothing happens to either population at f = 14;
-            only the mixture's quantile moves, and only because a weight crossed a threshold.
+NOTE THE DIFFERENT VERTICAL SCALES. Figure 2 runs 0.15 to 0.35 and figure 3 runs 0 to 0.70. Both
+subtitles say so. Plotted on figure 3's axis the whole of figure 2 would be a flat line, which is
+itself the result -- but it would show nothing, so the scales are not shared. Read the two axis
+ranges before comparing whisker heights by eye.
 
-WHICH FIGURE TO PUT ON THE POSTER. Figure 2 answers "what is the overall spread of answers", and
-is the honest marginal. Figure 4 answers "how often does the operand die, and how bad is it when
-it does", which is the more useful engineering question and the one with no artifact in it. They
-are the same 806,928 measured trials, summarised two ways.
-
-
+WHAT THE PAIR SAYS. Figure 2 is the ordinary case and it is boringly well behaved: 97% of single
+upsets land there, the mean never moves off 0.25, and the middle 90% is inside +/- 0.02 even at
+32 flips. Figure 3 is the whole risk: broad from ONE flip, floor at 0.000 the entire way across.
+The AND gate has no figure 3 at all, because all 512 of its operand bits are worth the same
+1/256. That is the comparison the poster is for.
 ================================================================================================
 6c. IS THE ERROR NORMALLY DISTRIBUTED?  NO -- AND THAT IS THE RESULT
 ================================================================================================
