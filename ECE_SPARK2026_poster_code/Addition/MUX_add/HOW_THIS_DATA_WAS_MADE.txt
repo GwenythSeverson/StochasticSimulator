@@ -1,4 +1,4 @@
-================================================================================================
+﻿================================================================================================
 HOW THIS DATA WAS MADE                              ECE SPARK 2026 -- MUX scaled adder
 ================================================================================================
 
@@ -147,7 +147,7 @@ is to choose. Counting it is the difference between an honest fault model and a 
 NOTHING ELSE IS FLIPPABLE, and that is not an omission. The unit is one combinational gate: it
 has no registers, no counter, no accumulator, no RNG state. The only sequential state anywhere
 is in the stream generators upstream, which are not part of the multiplexer. Compare uMUL (an
-8-bit operand register plus an RNG index) and uSADD (a 2-bit accumulator plus a 2-bit PC bus).
+8-bit operand register plus an RNG index) and uSADD (a 1-bit accumulator plus a 2-bit PC bus).
 THE MUX HAS NO STATE TO CORRUPT -- that is genuinely its best property, and it is why this
 folder has no equivalent of uMUL's register figure.
 

@@ -52,6 +52,7 @@ set(CORE_SOURCES
   modules/multiplier.cpp          # plain AND-gate multiplier
   modules/SuMUL.cpp               # uGEMM Fig 3(a), sliding-window counter
   modules/uMUL.cpp                # uGEMM Fig 3(a), loaded binary operand
+  modules/uSADD.cpp               # uGEMM scaled adder: parallel counter + accumulator
   modules/divider.cpp
 )
 
@@ -63,6 +64,7 @@ set(UNIT_TESTS
   "tests/Unit Tests/test_multipliers.cpp"
   "tests/Unit Tests/test_SuMUL.cpp"                 # ~0.02 s
   "tests/Unit Tests/test_uMUL.cpp"                  # ~0.08 s
+  "tests/Unit Tests/test_uSADD.cpp"                 # uGEMM scaled adder
   "tests/Unit Tests/test_dividers.cpp"
 )
 
@@ -77,6 +79,9 @@ set(FUNCTIONAL_TESTS
   "tests/Functional Tests/multiplier/uMUL/test_uMUL_convergence.cpp"   # ~107 s, -> umul_convergence_{low,mid,high,allpairs}.csv
                                                                        #   (the all-pairs sweep alone is ~96 s: every operand
                                                                        #    pair x every arrangement x all 1024 termination points)
+
+  "tests/Functional Tests/adder/uSADD/test_uSADD_behavior.cpp"   # -> usadd_behavior.csv, usadd_vs_mux.csv,
+                                                                   #    usadd_early_termination.csv
 
   # Cut for speed -- re-enable when you actually want the divider numbers.
   # "tests/Functional Tests/divider/test_dividers_accuracy.cpp"
@@ -94,6 +99,10 @@ set(FAULT_INJECTION_TESTS
   # SPARK 2026 poster code. Writes its CSV next to its own source file (via __FILE__), not to
   # the working directory, so the poster folder stays self-contained.
   "ECE_SPARK2026_poster_code/Multiplication/AND_mul/AND_Mul_poster.cpp"      # -> 2 CSVs in AND_mul/
+  "ECE_SPARK2026_poster_code/Multiplication/AND_mul/AND_Mul_sign_bias.cpp"    # -> AND_Mul_sign_bias.csv
+  "ECE_SPARK2026_poster_code/Multiplication/uMUL_mul/uMUL_poster.cpp"        # -> 3 CSVs in uMUL_mul/
+  "ECE_SPARK2026_poster_code/Addition/MUX_add/MUX_Add_poster.cpp"             # -> 3 CSVs in MUX_add/
+  "ECE_SPARK2026_poster_code/Addition/uSADD_add/uSADD_Add_poster.cpp"         # -> 3 CSVs in uSADD_add/
 
   # Currently disabled -- re-enable individually as needed.
   # "tests/Fault Injection/multiplier/multiplier_injections.cpp"

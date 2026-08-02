@@ -1,4 +1,6 @@
-#include <gtest/gtest.h>
+﻿#include <gtest/gtest.h>
+#include <iostream>
+#include <iomanip>
 #include <vector>
 #include <cmath>
 #include <cstdio>
@@ -25,6 +27,79 @@
 // not exist in this form of the unit.
 
 using namespace StochasticSimulator;
+
+// =============================================================================================
+// IS THE TOP BIT A SIGN BIT?  NO -- and this test exists to show why it looks like one.
+// =============================================================================================
+// The value register is an UNSIGNED magnitude in [0, 2^width - 1], read as value/2^width, and
+// the comparator is a plain "value > random". There is no sign bit, no two's complement, and no
+// negative operand anywhere in the unipolar unit.
+//
+// What makes bit 7 look special in the poster figure is the OPERAND, not the hardware:
+//
+//     a flip can only CLEAR a bit that was SET   -> the value falls
+//     a flip can only SET a bit that was CLEAR   -> the value rises
+//
+// The poster uses p1 = 0.5, i.e. value = 128 = 1000_0000, which has exactly ONE bit set -- the
+// MSB. So seven of the eight flips push the answer UP and only one pushes it DOWN, and the one
+// that goes down is the heaviest bit. Change the operand and the pattern moves with it.
+//
+// The magnitude is always the same though: flipping bit b moves the answer by
+//     |delta| = (2^b / 2^width) * p0
+// so the MSB is worth p0/2 = 0.25 here REGARDLESS of the operand. Only the SIGN depends on the
+// data. That is the honest statement, and it is what this test pins down.
+TEST(UnaryMultiplierTest, TopBitIsMagnitudeNotSign) {
+    constexpr unsigned WIDTH = 8;
+    constexpr int N = 256;
+    constexpr int ONES = 128;                 // p0 = 0.5, so 128 enabled cycles
+
+    auto run = [&](uint64_t value) {
+        UnaryMultiplier m(WIDTH, 1);
+        m.load_value(value);
+        int ones = 0;
+        // in_0 packed at the front: position never matters, only the enabled count.
+        for (int i = 0; i < N; ++i) if (m.multiply(i < ONES)) ++ones;
+        return ones;
+    };
+
+    std::cout << "\n  uMUL single-flip damage vs the operand it is carrying (p0 = 0.5)\n"
+              << "  value  p1      bits       flip b=7   flip b=6   flip b=5   set bits\n";
+
+    for (uint64_t base : {uint64_t{128}, uint64_t{64}, uint64_t{192}, uint64_t{255},
+                          uint64_t{1}, uint64_t{200}}) {
+        const int clean = run(base);
+        std::cout << "   " << std::setw(4) << base << "  "
+                  << std::fixed << std::setprecision(3)
+                  << (static_cast<double>(base) / 256.0) << "  ";
+        for (int b = 7; b >= 0; --b) std::cout << ((base >> b) & 1);
+        std::cout << " ";
+
+        int setbits = 0;
+        for (int b = 0; b < 8; ++b) if ((base >> b) & 1) ++setbits;
+
+        for (int b : {7, 6, 5}) {
+            const uint64_t flipped = base ^ (1ull << b);
+            const double delta = static_cast<double>(run(flipped) - clean) / N;
+            std::cout << std::setw(11) << std::showpos << std::setprecision(4) << delta
+                      << std::noshowpos;
+
+            // THE MAGNITUDE IS FIXED BY THE BIT, NOT THE DATA. Flipping bit b moves the value by
+            // 2^b, which moves the answer by (2^b / 256) * p0, up to the comparator's 1/256
+            // quantisation.
+            const double expect_mag = (static_cast<double>(1u << b) / 256.0) * 0.5;
+            EXPECT_NEAR(std::fabs(delta), expect_mag, 1.5 / N)
+                << "bit " << b << " magnitude on operand " << base;
+
+            // THE SIGN IS FIXED BY THE DATA. A set bit can only be cleared (down); a clear bit
+            // can only be set (up). If this were a sign bit, bit 7 would go one way regardless.
+            const bool was_set = ((base >> b) & 1) != 0;
+            if (was_set) EXPECT_LT(delta, 0.0) << "clearing a set bit must lower the operand";
+            else         EXPECT_GT(delta, 0.0) << "setting a clear bit must raise the operand";
+        }
+        std::cout << std::setw(9) << setbits << "\n";
+    }
+    std::cout << std::endl;
+}
 
 class UnaryMultiplierTest : public ::testing::Test {
 protected:

@@ -1,81 +1,54 @@
-﻿%% plot_AND_Mul_fault_sign_bias.m                     ECE SPARK 2026 -- AND multiplier
+%% plot_AND_Mul_fault_sign_bias.m                     ECE SPARK 2026 -- AND multiplier
 %
-% Redraws ONE panel -- "Fault Sign Bias" -- from the 3x3 suite in
-% tests/Fault Injection/multiplier/analyze_multiplier_faults2.m, on its own and in the poster
-% palette, so it can be mounted beside the other AND_mul figures.
-%
-%     32bit_exhaustive_multiplier_trials.csv  ->  AND_Mul_poster_fault_sign_bias.png
+% Reads AND_Mul_sign_bias.csv (written by AND_Mul_sign_bias.cpp in this folder) and saves
+% AND_Mul_poster_fault_sign_bias.png here. Nothing outside this folder is touched.
 %
 % ------------------------------------------------------------------------------------------
-% WHAT IT SHOWS. Mean RAW (signed, not absolute) total error against the ones-count of the
-% faulted input stream. Every other figure in this folder reports magnitude; this one reports
-% DIRECTION, and that is the whole reason it is worth a panel of its own.
+% WHAT IT SHOWS. The average number of output 1s ADDED or SUBTRACTED by faults, against the
+% ones-count of the faulted input stream. Every other AND_mul figure reports error MAGNITUDE;
+% this one reports DIRECTION, which is why it is worth its own panel.
 %
-% THE LINE CROSSES ZERO IN THE MIDDLE, and that is the result:
-%     a SPARSE stream (few ones) has mostly zeros to flip, so a random flip usually ADDS a one
-%       and the output error is POSITIVE
-%     a DENSE stream (many ones) has mostly ones to flip, so a flip usually REMOVES one and the
-%       error is NEGATIVE
-%     at half density the two are equally likely and the bias vanishes
-% So the fault bias of an AND-gate multiplier is not a property of the gate -- it is a property
-% of the OPERAND it happens to be carrying. The sign is set by the data, not by the hardware.
-%
-% NOTE THE STREAM LENGTH. This CSV is the 32-BIT exhaustive campaign, not the 256-bit sweep the
-% rest of this folder uses. It is a different experiment at a different resolution, and the two
-% should not be read as points on one curve. It is here because the sign result does not depend
-% on length and it is the cleanest place to see it.
+% THE LINE CROSSES ZERO AT HALF DENSITY, and that is the result:
+%     a SPARSE stream (few 1s) is mostly 0s, so a flip usually ADDS a one   -> positive
+%     a DENSE stream (many 1s) is mostly 1s, so a flip usually REMOVES one -> negative
+%     at 16 of 32 the two are equally likely and the bias is exactly zero
+% So the fault bias of an AND-gate multiplier is not a property of the gate. It is a property
+% of the OPERAND it happens to be carrying: the data sets the sign, not the hardware.
 %
 % ------------------------------------------------------------------------------------------
-% WHICH ERROR COLUMN, AND WHY IT IS NOT THE ONE THE ORIGINAL PANEL USED
+% IT IS A STRAIGHT LINE, AND THAT IS THE POINT OF REGENERATING IT
 %
-% The CSV carries three error columns, and test_multiplier_fault2.cpp defines them as:
+% The original panel (analyze_multiplier_faults2.m, "Graph 2") was drawn from
+% 32bit_exhaustive_multiplier_trials.csv, which sweeps only a few sampled arrangements per
+% operand pair and only part of the flip range. It wobbled by a few tenths of a bit around the
+% trend, and that wobble was sampling noise, not physics.
 %
-%     ideal_val       = countA * countB / 32          the real-valued product, unquantized
-%     PrecisionError  = ExpectedCleanOnes - ideal_val rounding only; nothing to do with faults
-%     BitFlipError    = FaultedOnes - ExpectedCleanOnes   <- ones ADDED or REMOVED by the flips
-%     TotalError      = FaultedOnes - ideal_val       = BitFlipError + PrecisionError
+% AND_Mul_sign_bias.cpp computes the same quantity EXHAUSTIVELY -- every Count A, every Count B,
+% every flip count 0 to 32, every combination of flips within each count, and every arrangement
+% of the two streams, each carrying its exact multiplicity. Done that way the answer is
 %
-% The original 3x3 panel plotted TOTALERROR. That is a perfectly good quantity -- it is the
-% error against the true mathematical answer -- but it is NOT "ones added or removed", because
-% it also carries the quantisation error of rounding the ideal product to a whole number of
-% ones. Since this figure's y axis is labelled in output BITS ADDED AND REMOVED, it has to plot
-% the column that actually means that, which is BITFLIPERROR.
+%       mean 1s added/subtracted  =  8 - CountA/2
 %
-% HOW MUCH DIFFERENCE DOES IT MAKE? The precision term is small next to the fault term -- at
-% most 0.25 bits against a range of +/-8 -- so the overall shape is identical either way. But it
-% is NOT negligible where this figure makes its point: at Count A = 16 the mean TotalError is
-% +0.006 while the mean BitFlipError is -0.244, so the two cross zero one step apart --
-% TotalError between 16 and 17, BitFlipError between 15 and 16. Plotting TotalError would put
-% the "no bias" point in the wrong place by exactly the amount the rounding contributes.
+% exactly. The .cpp asserts it to 1e-9 and measures a worst deviation of 5e-14, i.e. floating
+% point. Any curvature on this figure would be a bug.
 %
-% Set METRIC below to 'TotalError' to reproduce the original panel instead.
-%
-% ORIGINAL SOURCE: analyze_multiplier_faults2.m, "Graph 2: Fault Sign Bias". Changes here: the
-% leading "2." is dropped from the title (it is no longer part of a numbered suite), the styling
-% matches the poster set, the y axis is expressed in signed output bits, and the metric is
-% BitFlipError as argued above.
+% ONE THING THE EXHAUSTIVE VERSION FIXED. An intermediate version averaged over the campaign's
+% canonical "zero correlation error" overlap, round(cA*cB/32), rather than over all
+% arrangements. Rounding the overlap to a whole number of 1s sends every half-integer up, which
+% biases every odd Count B by -1 and put a real 0.24-bit kink at Count A = 16 -- right where
+% this figure makes its point. Averaging over arrangements removes the rounding entirely, and
+% only then is the line exact. See the .cpp header.
 
 clear; clc; close all;
 
 scriptDir = fileparts(mfilename('fullpath'));
-% AND_mul/ -> Multiplication/ -> ECE_SPARK2026_poster_code/ -> repo root
-repoRoot  = fullfile(scriptDir, '..', '..', '..');
-
-% Prefer the archived copy under keepdata/, which is the one that is meant to stay put; fall
-% back to the working-directory copy the C++ suite writes.
-candidates = { ...
-    fullfile(repoRoot, 'keepdata', 'Multiplier Data', 'AND Mul', '32bit_exhaustive_multiplier_trials.csv'), ...
-    fullfile(repoRoot, '32bit_exhaustive_multiplier_trials.csv')};
-csvFile = '';
-for c = candidates
-    if isfile(c{1}), csvFile = c{1}; break; end
-end
-if isempty(csvFile)
-    error(['CRITICAL: 32bit_exhaustive_multiplier_trials.csv not found in keepdata/ or at the ' ...
-           'repo root.\nRun the C++ fault-injection suite first.']);
+csvFile   = fullfile(scriptDir, 'AND_Mul_sign_bias.csv');
+if ~isfile(csvFile)
+    error(['CRITICAL: %s not found.\n' ...
+           'Run:  stochastic_computer.exe --gtest_filter=AndMulSignBias.*'], csvFile);
 end
 
-%% POSTER STYLE -- identical to the other four scripts in this folder set.
+%% POSTER STYLE -- identical to the other scripts in this folder set.
 STY = struct( ...
     'bg',    [0.62 0.62 0.62], ...   % the PLOT PANEL only
     'figbg', [1.00 1.00 1.00], ...   % figure surround + exported margin: WHITE
@@ -88,39 +61,24 @@ MARGIN_PX = 40;
 BLUE = [0.10 0.28 0.85];
 RED  = [0.90 0.20 0.20];
 
-% 'BitFlipError' = ones added/removed by the flips alone -- what the y axis claims to show.
-% 'TotalError'   = that plus the quantisation error, which is what the original panel plotted.
-METRIC = 'BitFlipError';
-
 %% ---------------------------------------------------------------------------------------
-%% Load. Only three columns are needed, so the four bitstring columns are skipped outright --
-%% textscan's %*q is what keeps this fast on a file with 32-element vectors in every row.
+%% Load and collapse to one point per Count A
 %% ---------------------------------------------------------------------------------------
-fprintf('Ingesting %s ... ', csvFile);
-tic;
-fid = fopen(csvFile, 'r');
-fgetl(fid);                       % header
-% Trial, cA, cB, CleanOnes, Org, Flips, VecA, VecB, VecA_F, VecOut, FaultedOnes, TotalErr, ...
-raw = textscan(fid, '%f %f %f %f %f %f %*q %*q %*q %*q %f %f %f %f', ...
-               'Delimiter', ',', 'TreatAsEmpty', {'NA', 'NaN'});
-fclose(fid);
-countA = raw{2};
-switch METRIC
-    case 'BitFlipError', metricCol = raw{10};   % FaultedOnes - ExpectedCleanOnes
-    case 'TotalError',   metricCol = raw{8};    % FaultedOnes - ideal (includes rounding)
-    otherwise, error('METRIC must be ''BitFlipError'' or ''TotalError''.');
-end
-fprintf('%d rows in %.2f s  (metric: %s)\n', numel(countA), toc, METRIC);
+T = readtable(csvFile, 'Delimiter', ',');
+% One row per (Count A, flip count). Averaging over flip count uniformly is what "from 0
+% faulted to all 32 faulted" means: every flip level counts once.
+[G, cA] = findgroups(T.CountA);
+meanDelta = splitapply(@mean, T.MeanOnesDelta, G);
 
-[G, cA] = findgroups(countA);
-meanRawTotalError = splitapply(@mean, metricCol, G);
-
-fprintf('Count A spans %d to %d; mean raw error runs %+.3f to %+.3f\n', ...
-        min(cA), max(cA), meanRawTotalError(1), meanRawTotalError(end));
-% Where the bias changes sign, reported rather than assumed.
-cross = find(sign(meanRawTotalError(1:end-1)) ~= sign(meanRawTotalError(2:end)), 1);
-if ~isempty(cross)
-    fprintf('Sign change between Count A = %d and %d\n', cA(cross), cA(cross+1));
+fprintf('Loaded %d rows, %d Count A values (%d to %d), %d flip levels each\n', ...
+        height(T), numel(cA), min(cA), max(cA), height(T)/numel(cA));
+fprintf('Mean 1s delta runs %+.4f at Count A = %d  to  %+.4f at Count A = %d\n', ...
+        meanDelta(1), cA(1), meanDelta(end), cA(end));
+fprintf('Worst deviation from the exact line 8 - CountA/2: %.3e\n', ...
+        max(abs(meanDelta - (8 - cA/2))));
+zero_at = cA(abs(meanDelta) < 1e-9);
+if ~isempty(zero_at)
+    fprintf('Bias is exactly zero at Count A = %d (half density)\n', zero_at(1));
 end
 
 %% ---------------------------------------------------------------------------------------
@@ -136,7 +94,7 @@ hold(ax, 'on');
 yline(ax, 0, '--', 'Color', RED, 'LineWidth', 2.2, ...
       'Label', 'no bias', 'LabelHorizontalAlignment', 'right', ...
       'LabelVerticalAlignment', 'bottom', 'FontSize', 12);
-plot(ax, cA, meanRawTotalError, '-s', 'Color', BLUE, 'LineWidth', 2.2, ...
+plot(ax, cA, meanDelta, '-s', 'Color', BLUE, 'LineWidth', 2.4, ...
      'MarkerFaceColor', BLUE, 'MarkerEdgeColor', BLUE, 'MarkerSize', 6);
 hold(ax, 'off');
 
@@ -144,24 +102,14 @@ grid(ax, 'on');
 ax.XMinorGrid = 'off';  ax.YMinorGrid = 'off';
 ax.XMinorTick = 'off';  ax.YMinorTick = 'off';
 
-% X SPANS THE WHOLE 32-BIT STREAM, 0 to 32, so the reader sees the operand at its real scale
-% rather than stopping at whatever the sweep happened to reach.
-%
-% TWO THINGS ABOUT THE ENDS, both deliberate:
-%   0 IS KEPT, not started at 1. Count A = 0 is an all-zeros stream and it is a genuine measured
-%     point -- the largest positive bias on the whole figure, in fact -- so starting the axis at
-%     1 would drop the single most informative sample.
-%   32 IS EMPTY. The C++ sweep runs `for countA = 0; countA < STREAM_LEN`, so a fully dense
-%     stream is never built. The axis still runs out to 32 to show the full operand range; the
-%     line simply stops one short of it, which is the truth about this campaign.
+% X runs 0 to 32 and so does the DATA -- the sweep now covers a fully dense stream, so there is
+% no empty space at the right-hand end the way there was when the campaign stopped at 31.
 xlim(ax, [0 32]);
 xticks(ax, 0:4:32);
 
-% Y IN OUTPUT BITS, SIGNED AND SYMMETRIC. TotalError is already a count of output ones
-% (faulted minus clean), not a fraction, so no conversion is needed -- but the axis has to SAY
-% so, and it has to say which direction is which. Ticks are forced symmetric about zero and
-% given explicit + / - signs, because the entire content of this figure is that the sign flips.
-lim  = ceil(max(abs(meanRawTotalError)));
+% Y in output 1s, signed and symmetric about zero, because the whole content of this figure is
+% that the sign flips. Explicit + / - on every tick.
+lim  = ceil(max(abs(meanDelta)));
 step = max(1, round(lim / 4));
 tk   = -lim:step:lim;
 lab  = arrayfun(@(v) sprintf('%+d', v), tk, 'UniformOutput', false);
@@ -169,8 +117,8 @@ lab{tk == 0} = '0';
 yticks(ax, tk);  yticklabels(ax, lab);
 ylim(ax, [-lim lim]);
 
-% The two halves named where they happen. The data runs top-left to bottom-right, so the
-% top-right and bottom-left corners are empty and the labels sit clear of the line.
+% The two halves named where they happen. The line runs top-left to bottom-right, so the
+% top-right and bottom-left corners are empty and the labels sit clear of it.
 text(ax, 31, lim * 0.86, '1s ADDED', ...
      'HorizontalAlignment', 'right', 'FontSize', 14, 'FontWeight', 'bold', 'Color', STY.fg);
 text(ax, 1, -lim * 0.86, '1s SUBTRACTED', ...
@@ -178,12 +126,9 @@ text(ax, 1, -lim * 0.86, '1s SUBTRACTED', ...
 
 xlabel(ax, 'Ones in the Faulted Input Stream  (of 32)', 'FontSize', 15);
 ylabel(ax, {'1s Added or Subtracted on Average', 'once all faults are applied'}, 'FontSize', 15);
-% Subtitle kept to two short clauses. The "sparse biases high, dense biases low" reading is
-% already written into the plot itself by the two in-axes labels, so repeating it here only
-% made the line overflow both edges of the panel.
 title(ax, {'AND-Gate Multiplier -- Fault Sign Bias', ...
-           sprintf('32-bit exhaustive campaign   |   %s trials', ...
-                   commafy(numel(countA)))}, 'FontSize', 15);
+           'exhaustive: every operand pair, every flip count 0-32, every combination'}, ...
+      'FontSize', 15);
 
 style_axes(ax, STY);
 set(fig, 'Color', STY.figbg);
@@ -197,10 +142,6 @@ fprintf('\nFigure saved to %s\n', png);
 % ---------------------------------------------------------------------------------------
 % Helpers, identical to the other scripts in this folder set.
 % ---------------------------------------------------------------------------------------
-function s = commafy(n)
-    s = fliplr(regexprep(fliplr(sprintf('%d', round(n))), '(\d{3})(?=\d)', '$1,'));
-end
-
 function style_axes(ax, STY)
     ax.Color      = STY.bg;
     ax.XColor     = STY.fg;

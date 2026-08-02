@@ -1,39 +1,82 @@
-﻿%% plot_MUX_Add_poster.m                              ECE SPARK 2026 -- MUX scaled adder
+﻿%% plot_uSADD_Add_poster.m                          ECE SPARK 2026 -- uGEMM scaled adder
 %
-% Companion to AND_mul/plot_AND_Mul_poster.m. Same axes, same marks, same conventions, so the
-% multiplication and addition figures read as one set.
+% Companion to MUX_add/plot_MUX_Add_poster.m and the two multiplier scripts. Same axes, same
+% marks, same conventions.
 %
-%     MUX_Add_poster_warmup.csv  -> plot 1, zero-fault early termination
-%     MUX_Add_poster_faults.csv  -> plot 2, fault response 0..36 flipped bits
+%     uSADD_Add_poster_warmup.csv  -> plot 1, zero-fault early termination
+%     uSADD_Add_poster_faults.csv  -> plot 2, fault response over the 512-bit stream surface
 %
-% MUX_Add_poster_sensitivity.csv is also written by the .cpp but is NOT plotted here. It is the
-% exact single-flip damage for all 24 site classes, and it is reported as a table in
-% HOW_THIS_DATA_WAS_MADE.txt section 4 instead -- the numbers are more use written out than as
-% a bar chart, since there are only two of them (0 and 1/256).
+% uSADD_Add_poster_state.csv is also written by the .cpp but is NOT plotted here. It holds the
+% measured PC and accumulator strike data -- every bit, every strike cycle -- and the headline
+% from it is a single number rather than a shape: the worst damage ONE strike on uSADD's binary
+% state can do is 1 output bit, 0.0039, against uMUL's 0.25 for one strike on its operand
+% register. That is a sentence, not a bar chart, so it is reported in the console summary and in
+% HOW_THIS_DATA_WAS_MADE.txt rather than given a panel. The CSV is still generated and still the
+% place to go for the per-bit, per-cycle detail.
 %
 % ------------------------------------------------------------------------------------------
-% THE UNIT. out = sel ? a : b. With a 0.5 select stream this is the standard stochastic scaled
-% adder, (a + b)/2. THREE 256-bit operand streams, so 768 flippable bits -- the select stream is
-% as real and as exposed as the data, and this sweep includes it.
+% THE UNIT. A parallel counter sums the input bits; an accumulator holds the running credit and
+% emits one bit whenever it reaches n. Nothing is discarded, so out = (a + b)/2 exactly, with no
+% correlation requirement, no select stream, and no RNG.
 %
-% A single flip on this surface has only two possible effects: nothing at all, or exactly
-% +/- 1/256. Which one depends on the cycle:
-%     a flip   matters only when sel = 1 (otherwise b is being routed)
-%     b flip   matters only when sel = 0
-%     sel flip matters only when a and b DISAGREE
-% Exactly half of each stream is therefore inert, so 384 of the 768 sites are live and every one
-% of them is worth the same 1/256. Nothing on this surface is more dangerous than anything else,
-% which is the flat-risk profile a fully unary unit has and uMUL does not.
+% TWO OPERAND STREAMS, NOT THREE. The MUX next door needs a 0.5 select stream and pays for it
+% with 256 extra fault sites; uSADD does not have one. Its surface is 512 stream bits plus THREE
+% bits of state: a ONE-BIT accumulator and a 2-bit PC bus.
+%
+% WHY THE ACCUMULATOR IS ONE BIT. uGEMM takes the output from the CARRY of the accumulator, so
+% the register only ever stores the residue -- for two inputs that is {0, 1}. The wide pre-drain
+% sum exists inside the adder, not in a flip-flop. An earlier revision of this project sized the
+% register for the sum instead, which gave it two bits; the healthy arithmetic was identical but
+% the accumulator's fault cross-section was double what the real design has.
+%
+% WHY THAT STATE IS CHEAP TO LOSE. Both uSADD and uMUL carry binary state, and the contrast is
+% the whole poster:
+%     uMUL's 8-bit register holds an OPERAND. One MSB strike sets it to zero and every remaining
+%       cycle of the run is wrong: 0.25 of damage from one upset, never repaired.
+%     uSADD's 1-bit accumulator holds a RESIDUE -- credit not yet spent. One strike perturbs the
+%       running total once, the unit keeps integrating correctly, and the damage stops there:
+%       at most 1 output bit, 0.0039, whatever the strike and whenever it lands -- the same
+%       as a single stream bit is worth. Its state is no more dangerous than its data.
+% Same idea (put state in a binary register), opposite consequence, because of WHAT the register
+% holds.
+%
+% ------------------------------------------------------------------------------------------
+% WHY THE 1-FLIP WHISKER ONLY GOES DOWN -- the first thing anyone asks about figure 2
+%
+% At one flip the ONLY reachable outcomes are 127 and 128 output ones. There is no 129, so the
+% whisker has nothing above 0.5 to draw. That is the floor, not a plotting bug:
+%
+%     uSADD emits floor(total input ones / 2), and the clean total here is 256 -- an EVEN number
+%     sitting exactly on a floor boundary.
+%         flip a 1 -> 0   total 255   floor(255/2) = 127   loses a whole output bit
+%         flip a 0 -> 1   total 257   floor(257/2) = 128   GAINS NOTHING
+%     The extra credit from the second case is real, but it is stranded in the accumulator as
+%     residue rather than becoming an output one. So a single flip can take a bit away or do
+%     nothing; it can never add one.
+%
+% IT IS A PARITY EFFECT AND IT REPEATS. The net credit change always has the same parity as the
+% flip count, so an odd f always leaves the total odd and the floor always eats the half bit:
+%
+%     f      1     2     3     4     5     6
+%     reach -1/+0 -1/+1 -2/+1 -2/+2 -3/+2 -3/+3
+%     mean  .4980 .5000 .4980 .5000 .4980 .5000
+%
+% Every ODD flip level reaches one step further down than up and sits half an output bit low;
+% every EVEN one is symmetric and exactly on target. This is the same residue that is the unit's
+% only healthy error -- the accumulator can WITHHOLD output but never MANUFACTURE it, so uSADD's
+% error is always a deficit. It is the one place in this poster set where a mean is not pinned on
+% its target, and it is worth saying out loud rather than letting a reviewer find it.
 
 clear; clc; close all;
 
 scriptDir = fileparts(mfilename('fullpath'));
-warmCsv = fullfile(scriptDir, 'MUX_Add_poster_warmup.csv');
-faultCsv = fullfile(scriptDir, 'MUX_Add_poster_faults.csv');
-for fchk = {warmCsv, faultCsv}
+warmCsv  = fullfile(scriptDir, 'uSADD_Add_poster_warmup.csv');
+faultCsv = fullfile(scriptDir, 'uSADD_Add_poster_faults.csv');
+stateCsv = fullfile(scriptDir, 'uSADD_Add_poster_state.csv');
+for fchk = {warmCsv, faultCsv, stateCsv}
     if ~isfile(fchk{1})
         error(['CRITICAL: %s not found.\n' ...
-               'Run:  stochastic_computer.exe --gtest_filter=MuxAddPoster.*'], fchk{1});
+               'Run:  stochastic_computer.exe --gtest_filter=uSADDAddPoster.*'], fchk{1});
     end
 end
 
@@ -67,11 +110,12 @@ MARGIN_PX = 40;                      % border around every exported PNG; 300 DPI
 
 W = readtable(warmCsv,  'Delimiter', ',');
 F = readtable(faultCsv, 'Delimiter', ',');
-BLUE = [0.10 0.28 0.85];
-RED  = [0.90 0.20 0.20];
+S = readtable(stateCsv, 'Delimiter', ',');
 
-% Equal-tailed middle 90%: 5th and 95th percentiles, nothing forced symmetric. Written the same
-% way in every script in this poster set so one estimator is used throughout.
+BLUE   = [0.10 0.28 0.85];
+RED    = [0.90 0.20 0.20];
+ORANGE = [0.95 0.55 0.10];
+
 function [lo, hi] = tail_band(vals, probs, tail)
     [vals, ord] = sort(vals);
     probs = probs(ord);  probs = probs / sum(probs);
@@ -90,8 +134,7 @@ for k = 1:nf
     [bLo(k), bHi(k)] = tail_band(v, p, TAIL);
 end
 
-fprintf('MUX adder: %d outcome rows across %d flip levels, 768-bit operand surface\n', ...
-        height(F), nf);
+fprintf('uSADD: %d outcome rows across %d flip levels, 512-bit stream surface\n', height(F), nf);
 fprintf('\n  flips     mean      min       max      5th pct      95th pct\n');
 for k = 1:nf
     if ismember(flipLevels(k), SHOW_FLIPS)
@@ -99,11 +142,13 @@ for k = 1:nf
                 flipLevels(k), mu(k), mn(k), mx(k), bLo(k), bHi(k));
     end
 end
+fprintf('\nWorst single state strike: %d output bits = %.6f\n', ...
+        max(abs(S.DeltaOnes)), max(abs(S.DeltaFraction)));
 
 %% ---------------------------------------------------------------------------------------
 %% FIGURE 1 -- zero-fault early termination
 %% ---------------------------------------------------------------------------------------
-fig1 = figure('Name', 'MUX Adder -- Zero-Fault Warm-Up', ...
+fig1 = figure('Name', 'uSADD -- Zero-Fault Warm-Up', ...
               'Units', 'Normalized', 'Position', [0.10, 0.14, 0.52, 0.70]);
 ax1 = axes(fig1);
 plot(ax1, W.N, W.MeanAbsError, '-o', 'LineWidth', 2.4, 'MarkerSize', 8, ...
@@ -115,21 +160,19 @@ xticks(ax1, W.N); xticklabels(ax1, string(W.N));
 xlim(ax1, [min(W.N)*0.85, max(W.N)*1.15]);
 xlabel(ax1, 'Bit Stream Length  (early termination point) [log]', 'FontSize', 13);
 ylabel(ax1, 'Mean Absolute Error', 'FontSize', 13);
-title(ax1, {'MUX Scaled Adder -- Zero-Fault Warm-Up', ...
-            sprintf(['(0.5 + 0.5)/2 = 0.5   |   exhaustive over all 10^{%.0f} decorrelated ' ...
-                     'arrangements'], W.Log10Arrangements(1))}, 'FontSize', 13);
+title(ax1, {'uSADD -- Zero-Fault Warm-Up', ...
+            sprintf(['(0.5 + 0.5)/2 = 0.5   |   exhaustive over all 10^{%.0f} arrangements, ' ...
+                     'NO decorrelation filter'], W.Log10Arrangements(1))}, 'FontSize', 13);
 ax1.Toolbar.Visible = 'off';
 
 %% ---------------------------------------------------------------------------------------
-%% FIGURE 2 -- fault response
+%% FIGURE 2 -- fault response over the stream surface
 %% ---------------------------------------------------------------------------------------
-fig2 = figure('Name', 'MUX Adder -- Fault Response', ...
+fig2 = figure('Name', 'uSADD -- Fault Response', ...
               'Units', 'Normalized', 'Position', [0.14, 0.10, 0.56, 0.72]);
 ax2 = axes(fig2);
 hold(ax2, 'on');
 
-% Zero has no place on a log axis, so the 0-flip stick is parked at x = 0.5 and labelled "0".
-% Its position is cosmetic; its height is the real measurement.
 xpos = SHOW_FLIPS;  xpos(xpos == 0) = 0.5;
 capBlue = 1.055;  capRed = 1.075;
 
@@ -156,17 +199,22 @@ set(ax2, 'XScale', 'log');  grid(ax2, 'on');
 ax2.XMinorGrid = 'off';  ax2.YMinorGrid = 'off';
 ax2.XMinorTick = 'off';  ax2.YMinorTick = 'off';
 xlim(ax2, [0.38 max(SHOW_FLIPS) * 2.6]);
-% Y bounded to 0.35 - 0.65, i.e. 0.5 +/- 0.15. SHARED with the uSADD fault figure so the two
-% addition panels can be mounted side by side and compared by eye without a scale trap -- the
-% same arrangement the AND gate and uMUL-intact pair use at 0.10 - 0.40. It frames the plotted
-% data tightly: the widest level shown here is 32 flips, spanning 0.375 to 0.625.
-% (The sweep also computes f = 36, reaching 0.359 to 0.641, but that level is not plotted.)
+% Y bounded to 0.35 - 0.65, i.e. 0.5 +/- 0.15, SHARED with the MUX fault figure. That shared
+% axis is the whole point of the addition pair: on it, uSADD's whisker is visibly HALF the
+% MUX's at every flip level (0.438-0.563 against 0.375-0.625 at 32 flips), which is the 1/2
+% scaling attenuating input faults before they reach the output. Do not retune one without the
+% other or the comparison stops being fair.
 ylim(ax2, [0.35 0.65]);
 xticks(ax2, xpos);  xticklabels(ax2, string(SHOW_FLIPS));
-xlabel(ax2, 'Bits Flipped  (over the 768-bit operand surface, a + b + select) [log]', 'FontSize', 12);
+xlabel(ax2, 'Bits Flipped  (over the 512-bit stream surface, a + b) [log]', 'FontSize', 12);
 ylabel(ax2, 'Fraction of Ones in the Final Answer', 'FontSize', 13);
-title(ax2, {'MUX Scaled Adder -- Fault Response', ...
-            'three operand streams, 768 flippable bits, select INCLUDED'}, 'FontSize', 13);
+% Subtitle leads with the operand expression, matching the AND gate's "0.5 x 0.5 = 0.25" and
+% this folder's own warm-up figure, so the four fault-response panels state their arithmetic the
+% same way. The "no select stream" point is still made -- it is in the surface size, 512 against
+% the MUX's 768 -- and spelling it out here as well was one clause too many for the line.
+title(ax2, {'uSADD -- Fault Response', ...
+            '(0.5 + 0.5)/2 = 0.5   |   two operand streams, 512 flippable bits'}, ...
+      'FontSize', 13);
 hold(ax2, 'on');
 pB = plot(ax2, NaN, NaN, '-', 'Color', BLUE, 'LineWidth', 1.8);
 pR = plot(ax2, NaN, NaN, '-', 'Color', RED,  'LineWidth', 2.4);
@@ -185,8 +233,8 @@ ax1.YAxis.TickLabelFormat = '%.2f';
 ax2.YAxis.TickLabelFormat = '%.2f';
 drawnow;
 
-png1 = fullfile(scriptDir, 'MUX_Add_poster_warmup.png');
-png2 = fullfile(scriptDir, 'MUX_Add_poster_faults.png');
+png1 = fullfile(scriptDir, 'uSADD_Add_poster_warmup.png');
+png2 = fullfile(scriptDir, 'uSADD_Add_poster_faults.png');
 exportgraphics(fig1, png1, 'Resolution', 300, 'BackgroundColor', 'current');
 exportgraphics(fig2, png2, 'Resolution', 300, 'BackgroundColor', 'current');
 for f = {png1, png2}, pad_png(f{1}, MARGIN_PX); end
@@ -218,8 +266,6 @@ end
 % exportgraphics crops flush to the content, so titles and tick labels sit hard against the PNG
 % edge and look cramped once the image is dropped onto a poster. This adds a quiet border in
 % whatever colour the image already has at its corner, so it follows the palette automatically.
-% Done afterwards rather than via exportgraphics' Padding option, which only offers 'tight' or
-% 'figure' -- neither is a controllable number of pixels.
 function pad_png(file, px)
     img = imread(file);
     if size(img, 3) == 1, img = repmat(img, 1, 1, 3); end

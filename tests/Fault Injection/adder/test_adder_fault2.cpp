@@ -29,7 +29,7 @@ constexpr size_t STREAM_LEN = 32;
 constexpr size_t S_ONES = STREAM_LEN / 2;     
 constexpr size_t ORGANIZATIONS_PER_PAIR = 1000;  
 
-uint32_t pack_stream_to_uint32(const std::vector<bool>& vec) {
+uint32_t pack_stream_to_uint32(const std::vector<bool>& vec) { 
     uint32_t val = 0;
     for (size_t i = 0; i < vec.size(); ++i) {
         if (vec[i]) {

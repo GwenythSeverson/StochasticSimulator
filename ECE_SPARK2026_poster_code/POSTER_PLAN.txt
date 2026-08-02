@@ -1,0 +1,189 @@
+﻿================================================================================================
+ECE SPARK 2026 -- FAULT TOLERANCE POSTER PLAN
+Which figures to show, in what order, and what each one is for.
+================================================================================================
+
+Everything below is measured. Four units, one operand pair each, N = 256, exhaustive fault
+enumeration verified against random trials. No orbit, no upset rate, no environment anywhere --
+the x axis is BITS FLIPPED throughout, which is a circuit property and holds whatever caused
+them. Applying a LEO or GEO rate is a separate, later step.
+
+------------------------------------------------------------------------------------------------
+1. THE THESIS -- ONE SENTENCE
+------------------------------------------------------------------------------------------------
+
+    UNARY REDUNDANCY IS WHAT BUYS FAULT TOLERANCE. uGEMM's units buy accuracy by compressing
+    state into a binary register -- and whether that costs you depends entirely on WHAT THE
+    REGISTER HOLDS.
+
+        uMUL's  8-bit register holds an OPERAND   ->  one strike can zero the answer, permanently
+        uSADD's 1-bit accumulator holds a RESIDUE ->  one strike costs at most 0.0039, ever --
+                                                      the same as one ordinary stream bit
+
+    Same idea, opposite consequence. That asymmetry is the poster, and it is the thing nobody
+    gets from an accuracy table.
+
+------------------------------------------------------------------------------------------------
+2. THE MEASURED NUMBERS BEHIND IT
+------------------------------------------------------------------------------------------------
+
+MULTIPLICATION      0.5 x 0.5 = 0.25, N = 256
+                                        AND gate            uMUL
+    operand surface                     512 bits            264 bits (256 stream + 8 register)
+    decorrelation filter needed?        YES                 no
+    reach at 1 flip                     0.246 - 0.254       0.000 - 0.375
+    reach at 36 flips                   0.109 - 0.391       0.000 - 0.613
+    worst damage from ONE strike        0.0039  (1/256)     0.2500  (MSB of the register)
+    distribution shape                  unimodal, -> normal bimodal, never normal
+    variance carried by 3% of trials    n/a                 95.5%
+    mean                                0.25 at every f     0.25 at every f
+
+ADDITION            (0.5 + 0.5)/2 = 0.5, N = 256
+                                        MUX adder           uSADD
+    operand surface                     768 bits (a+b+sel)  512 bits (a+b) + 3 bits of state
+    of which LIVE                       384 of 768          512 of 512
+    decorrelation filter needed?        YES                 no
+    full reach at 32 flips              0.375 - 0.625       0.438 - 0.563   <- HALF
+    middle 90% at 32 flips              0.477 - 0.523       0.484 - 0.516
+    worst damage from ONE state strike  no state to strike  0.0039  (= one stream bit)
+    healthy RMSE vs exact               0.0174              0.000000
+
+    THE ADDITION RESULT IS A CLEAN SWEEP and it surprised me: uSADD wins on accuracy AND on
+    fault tolerance AND on surface area. Its worst-case reach is HALF the MUX's because the 1/2
+    scaling attenuates input faults before they reach the output -- 32 flips move the credit by
+    32 but the answer by only 16 bits. The MUX has no such attenuation: every live flip is worth
+    a full output bit.
+
+    THE MULTIPLICATION RESULT GOES THE OTHER WAY. uMUL is more accurate than the AND gate
+    (no correlation error, no warm-up debt) and strictly worse under fault.
+
+------------------------------------------------------------------------------------------------
+3. THE FIGURES TO PUT ON THE POSTER
+------------------------------------------------------------------------------------------------
+
+FIVE figures. Two rows of two for the comparison, one centrepiece that carries the thesis.
+
+    ROW 1 -- MULTIPLICATION: THE TRADE GOES BADLY
+      [1]  Multiplication/AND_mul/AND_Mul_poster_faults.png
+           The AND gate. Symmetric, unimodal, graceful: 512 operand bits, every one worth the
+           same 1/256, so 36 flips move the answer by at most 0.14 and the middle 90% stays
+           inside +/- 0.03. Nothing is special, nothing is catastrophic.
+
+      [2]  Multiplication/uMUL_mul/uMUL_poster_faults_damaged.png
+           uMUL when its register is struck. Reaches 0.000 from ONE flip and stays reachable
+           there at every level. Put it directly beside [1] on the same page and the contrast
+           needs no caption.
+
+           SAY OUT LOUD that this is the conditional plot: it is what happens GIVEN a register
+           bit was hit, which is 3% of single upsets. Its companion
+           uMUL_poster_faults_intact.png is the other 97% and it looks like [1]. Showing only
+           the damaged half without saying so would be cherry-picking; showing both halves and
+           the 3% is the honest and more interesting claim -- uMUL fails RARELY and
+           CATASTROPHICALLY, the AND gate fails CONSTANTLY and NEGLIGIBLY.
+
+    ROW 2 -- ADDITION: THE TRADE GOES WELL
+      [3]  Addition/MUX_add/MUX_Add_poster_faults.png
+           The MUX adder over all 768 bits -- INCLUDING THE SELECT STREAM, which is the thing
+           people forget is a fault surface. +/- 0.125 at 32 flips.
+
+      [4]  Addition/uSADD_add/uSADD_Add_poster_faults.png
+           uSADD on the same axes. +/- 0.0625 at 32 flips: half the reach, two thirds the
+           surface, and no select stream to protect.
+
+    CENTREPIECE -- WHY
+      [5]  Multiplication/uMUL_mul/uMUL_poster_register.png
+           uMUL's 8-bit operand register expanded: each bit's single-flip damage against the
+           stream bit's +/- 1/256 drawn as a dashed reference. Seven bits push the answer up by
+           geometrically growing amounts; bit 7 takes it to a hard zero. ONE upset there is worth
+           64 stream upsets, and the panel shows exactly why: value = 128 has one bit set, so
+           clearing it clears the operand.
+
+           SAY THE uSADD HALF OUT LOUD RATHER THAN PLOTTING IT. uSADD also puts state in a
+           binary register, and the worst ONE strike on any of its three state bits (1-bit
+           accumulator + 2-bit PC bus) is 0.0039 -- exactly what one ordinary stream bit is
+           worth, and 64x smaller than uMUL's. That is a sentence, not a shape, so it belongs in
+           the caption rather than in a bar chart. The measured per-bit, per-cycle data is in
+           Addition/uSADD_add/uSADD_Add_poster_state.csv if anyone asks to see it.
+
+           If you only have room for THREE figures, use [1], [2] and [5].
+
+------------------------------------------------------------------------------------------------
+4. HOW TO COMPARE THEM FAIRLY -- READ THIS BEFORE MOUNTING ANYTHING
+------------------------------------------------------------------------------------------------
+
+  SAME X AXIS, DIFFERENT SURFACE SIZES. All four figures use "bits flipped" on the same log
+  ticks, but the surfaces differ: 512 (AND), 264 (uMUL), 768 (MUX), 512 (uSADD). f = 8 is
+  therefore a heavier dose for uMUL than for the MUX. State the surface size on each figure --
+  all four already do, in the x-axis label -- and do NOT let a reader infer that equal f means
+  equal stress. The honest framing is "given f upsets landed here, this is what happens".
+
+  CHECK THE VERTICAL SCALES. Two of them are shared on purpose and one pair is not:
+      SHARED     [1] AND gate and uMUL's operand-INTACT figure both run 0.10 to 0.40, so they
+                 can be mounted side by side and compared directly. That comparison is the
+                 point of the pair, so do not retune one without the other.
+      NOT SHARED uMUL's intact (0.10-0.40) against its damaged (0-0.70). On the damaged figure's
+                 axis the intact panel would be a flat line, which is itself the result but shows
+                 nothing. Both subtitles state their range.
+      DIFFERENT  The multiplication figures centre on 0.25 and the addition figures on 0.5.
+  Do not compare whisker heights across figures by eye without reading the axis first.
+
+  THE MEAN IS PINNED AT THE TARGET IN THREE OF THE FOUR UNITS -- the AND gate, uMUL and the MUX
+  adder all sit exactly on target at every flip level. Faults add variance, not drift. That makes
+  the mean the UNinteresting quantity; the reach and the band are what to point at.
+
+  uSADD IS THE EXCEPTION, AND ONLY AT ODD FLIP COUNTS. Its mean is exactly on 0.5 for even f and
+  0.498047 for odd f -- low by exactly half an output bit. This is not a bug and not drift; it is
+  the floor. uSADD emits floor(total credit / n), and an odd total leaves half a bit stranded in
+  the accumulator as residue. At f = 1 that shows up starkly: the only reachable outcomes are 127
+  and 128 ones, so a single flip can LOSE a bit or do nothing, but can never ADD one. Odd f
+  always reaches one step further down than up.
+
+  If a reviewer asks why the f = 1 whisker on the uSADD figure only goes downward, that is the
+  answer, and it is the same residue that is the unit's only healthy error. The accumulator can
+  withhold output but never manufacture it.
+
+  FOR uMUL, DO NOT QUOTE A STANDARD DEVIATION AT ALL: 95% of its variance comes from 3% of its
+  trials, so mean +/- sigma is wrong in both directions at once (see
+  uMUL_mul/HOW_THIS_DATA_WAS_MADE.txt section 6c).
+
+------------------------------------------------------------------------------------------------
+5. THE ONE-LINE CAPTIONS
+------------------------------------------------------------------------------------------------
+
+  [1]  "512 unary operand bits, every one worth 1/256. No bit is special."
+  [2]  "264 operand bits -- but 8 of them are a binary register, and one strike takes the
+        answer to zero. This is the 3% of upsets that land there."
+  [3]  "768 bits, and a third of them are the select stream nobody counts."
+  [4]  "512 bits, no select stream, and the 1/2 scaling halves what a fault can do."
+       If asked about the one-flip whisker pointing only downward: uSADD emits floor(credit/2),
+       the clean total 256 sits on a floor boundary, so one flip either LOSES a bit (255 -> 127)
+       or gains nothing (257 -> 128). See section 4 and uSADD_add/HOW_THIS_DATA_WAS_MADE.txt.
+  [5]  "Both units hold binary state. uMUL's holds an OPERAND -- one strike zeroes the`r`n        answer. uSADD's holds a RESIDUE -- one strike costs 1/256, like any other bit."
+
+------------------------------------------------------------------------------------------------
+6. WHAT NOT TO CLAIM
+------------------------------------------------------------------------------------------------
+
+  - Do not attach an orbit or an upset rate to any of this. None of the figures contain one, on
+    purpose. "1 in N operations in LEO" is a separate study.
+  - Do not call the high-f columns a predicted operating point. They are a stress sweep that maps
+    the response function; f = 1 is the column any realistic rate exercises.
+  - Do not claim uMUL is worse overall. It is MORE accurate when healthy -- that is why it
+    exists -- and the poster's point is that the accuracy is bought with redundancy, not that
+    the unit is bad.
+  - Do not present the uSADD PC/accumulator sweep as layout-exhaustive. It is site-exhaustive:
+    every bit and strike timing is measured, but multi-strike layouts over that state do not
+    collapse and were not enumerated. The .cpp header says so and so should you.
+
+------------------------------------------------------------------------------------------------
+7. REGENERATING EVERYTHING
+------------------------------------------------------------------------------------------------
+
+    stochastic_computer.exe --gtest_filter=AndMulPoster.*:uMULPoster.*:MuxAddPoster.*:uSADDAddPoster.*
+    then run the four plot_*.m scripts in MATLAB.
+
+  Each folder carries its own HOW_THIS_DATA_WAS_MADE.txt with the full method, the trial ledger,
+  and the honest limitations. Read those before answering questions at the poster -- every number
+  above is traceable to a measured gate run, and the reviewer who asks "how many trials is that
+  actually?" should get the ledger, not a shrug.
+================================================================================================

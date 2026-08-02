@@ -1,0 +1,431 @@
+================================================================================================
+HOW THIS DATA WAS MADE                              ECE SPARK 2026 -- uGEMM scaled adder (uSADD)
+================================================================================================
+
+Companion to MUX_add/, AND_mul/ and uMUL_mul/. Same operand style, same axes, same
+exhaustiveness standard, so all four units can be read against each other. Written in the same
+section order as MUX_add/HOW_THIS_DATA_WAS_MADE.txt so the two adders can be compared point for
+point.
+
+This file explains what is being simulated, HOW THE ERROR MODEL WAS DECIDED (section 4), the
+algorithm behind every number, the trial ledger, and the honest limitations.
+
+FILES IN THIS FOLDER
+    uSADD_Add_poster.cpp            generates all three CSVs. One source file, a GoogleTest case.
+    uSADD_Add_poster_warmup.csv     figure 1 data -- zero-fault early termination
+    uSADD_Add_poster_faults.csv     figure 2 data -- fault response, 0..36 flipped stream bits
+    uSADD_Add_poster_state.csv      the measured PC and accumulator strike data. NOT plotted; the
+                                    headline from it is one number, not a shape, and it is
+                                    reported in section 4.2 below and in the console summary.
+    plot_uSADD_Add_poster.m         reads the two plotted CSVs, writes the two PNGs.
+    uSADD_Add_poster_warmup.png     figure 1
+    uSADD_Add_poster_faults.png     figure 2
+
+TO REGENERATE
+    stochastic_computer.exe --gtest_filter=uSADDAddPoster.*     (about 25 seconds)
+    then run plot_uSADD_Add_poster.m in MATLAB
+Both write only into this folder. The .cpp locates itself with __FILE__, so it does not matter
+what directory the binary is launched from. Seeded with std::mt19937 rng(1337): every number
+reproduces byte for byte on re-run.
+
+EVERYTHING HERE IS MEASURED AND ENVIRONMENT-AGNOSTIC. Every number comes from clocking real
+streams through a real UnaryScaledAdder, and the x axis throughout is BITS FLIPPED -- not an
+upset rate, not an orbit. What is characterised is how the circuit RESPONDS to a given number of
+upsets. Multiplying that by a LEO or GEO rate is a separate, later step and is not done here.
+
+
+================================================================================================
+1. WHAT IS BEING SIMULATED
+================================================================================================
+
+A parallel counter feeding an accumulator, with the output taken from the accumulator's CARRY.
+
+     in_0 --,                                    (1) ACCUMULATION      (2) AVERAGE BY N
+     in_1 --+--> [ PC: parallel counter ] --s--> (+) --> [ A ] --carry--> out
+      ...  -'         sums the n bits             ^        |
+     in_n-1                                       |        v
+                                                  '----- residue, [0, n)
+
+Matching uGEMM figure 3(c). Per cycle:
+
+    1. PC counts the ones among the n input bits.  s = popcount(in), in [0, n]. Combinational.
+    2. A += s.
+    3. If the sum reaches n, the CARRY becomes the output bit and n is drained; otherwise the
+       credit stays in A for later. At most ONE bit leaves per cycle -- the output is a unary
+       stream at one bit per cycle.
+
+uGEMM states step 3 as: "the output is set to the carry bit of the accumulator... only when there
+are N ones in the input, a logic one at the output will be generated, exactly the output
+scaling."
+
+THE REGISTER IS NARROWER THAN THE SUM. A + s reaches 2n-1 at most, but that lives inside the
+adder; what is clocked back is the residue, always in [0, n). So A is ceil(log2(n)) bits -- for
+two inputs, ONE BIT holding {0, 1}. That distinction does not change any healthy result, but it
+halves the accumulator's fault cross-section, and getting it wrong would overstate uSADD's
+exposure. (An earlier revision of this project did exactly that; see section 9.)
+
+WHY IT IS EXACT. A is a running credit counter, so over N cycles
+
+        output ones  =  floor( total input ones / n )
+
+THE OPERANDS HERE
+    a   = 0.5 as a 256-bit unary stream        128 ones
+    b   = 0.5 as a 256-bit unary stream        128 ones
+    intended result (0.5 + 0.5)/2 = 0.5        128 output ones
+
+TWO STREAMS, NOT THREE. The MUX adder next door needs a 0.5 SELECT stream and pays 256 extra
+fault sites for it. uSADD has no select and no RNG of any kind.
+
+WHY 0.5 + 0.5 AND WHY N = 256. Both match the other three folders so the figures are comparable;
+0.5 is the maximum-entropy operand at this stream length, and the result sits mid-scale so error
+has room to move in both directions. N = 256 also makes each of the four (a,b) regions come out
+to exactly 64, which keeps the combinatorics legible.
+
+
+================================================================================================
+2. THE FILTER -- THERE IS NONE, AND THAT IS ALREADY A RESULT
+================================================================================================
+
+The MUX adder has to DISCARD trials. Three arbitrary 0.5 streams do not give 0.5 through a MUX;
+only the decorrelated ones do, so that file keeps trials where all 8 (a,b,sel) combinations occur
+exactly 32 times. The AND-gate multiplier has the same problem and the same filter.
+
+uSADD HAS NO SUCH REQUIREMENT AND THEREFORE NO FILTER. Its output is floor(total ones / 2), which
+never mentions where a one sits or how the two streams line up. Every one of the
+C(256,128)^2 = 3.3e151 arrangements gives exactly 128 output ones.
+
+This is asserted, not assumed. Before anything else the .cpp runs four independently shuffled
+pairs AND the two adversarial extremes:
+
+    perfectly correlated      b = a          -> 128 output ones
+    perfectly anti-correlated b = NOT a      -> 128 output ones
+
+Feeding a MUX adder those two would be its best and worst case respectively. Here they are
+indistinguishable. Having to filter is a real cost of the MUX, and not having to is a real
+property of uSADD -- worth saying out loud on the poster.
+
+
+================================================================================================
+3. THE COLLAPSE -- WHY THIS IS EXHAUSTIVELY ENUMERABLE
+================================================================================================
+
+Everything this unit can suffer reduces to ONE quantity: how much CREDIT reaches the accumulator.
+
+        output ones = floor(credit / 2),   credit = total ones across both input streams
+
+So a stream fault matters only through its NET effect on that total:
+
+        flip a 1 -> 0     -1 credit
+        flip a 0 -> 1     +1 credit
+
+WHERE the flip lands is irrelevant, and so is which of the two streams it lands in. That is a
+STRONGER collapse than either the MUX's or the AND gate's: the MUX needs all eight (a,b,sel)
+region sizes to describe an outcome, and the AND gate needs four. uSADD needs one integer.
+
+For the enumeration the 256 cycles are still split by (a, b) into four regions of 64 --
+
+        r   a b   credit contributed
+        0   0 0   0
+        1   0 1   1
+        2   1 0   1
+        3   1 1   2
+
+-- not because position matters, but because it is the cheapest way to count how many flip
+layouts produce each net credit change.
+
+
+================================================================================================
+4. HOW THE ERRORS WERE DECIDED       <-- THE SECTION TO READ
+================================================================================================
+
+4.1 WHAT IS FLIPPABLE, AND WHICH PART IS EXHAUSTIVE
+---------------------------------------------------
+    a stream         256 bits    static for the run     EXHAUSTIVELY swept
+    b stream         256 bits    static for the run     EXHAUSTIVELY swept
+    ------------------------------------------------
+    stream surface   512 bits
+
+    A register         1 bit     persistent from strike  site-exhaustive, NOT layout-exhaustive
+    PC output bus      2 bits    one cycle per strike    site-exhaustive, NOT layout-exhaustive
+    ------------------------------------------------
+    state              3 bits
+
+THE STREAM SURFACE IS 512 BITS, one third smaller than the MUX's 768, entirely because there is
+no select stream to protect. Figure 2 sweeps it exhaustively.
+
+THE STATE IS ONLY THREE BITS, and that is the whole unit -- there is no operand register, no RNG
+index, no counter window. Compare uMUL, which carries an 8-bit operand register plus an RNG
+index.
+
+WHY THE STATE IS NOT ENUMERATED THE SAME WAY. Stream flips change the total by a fixed -1 or +1
+regardless of when they land, so they collapse and the sweep is lossless. PC and accumulator
+strikes are TIME-DEPENDENT in a way stream flips are not:
+
+  - the SIGN of a register strike depends on the bit's value at the instant it is struck, which
+    depends on the whole history of the run up to that cycle;
+  - a large enough strike can push A past its own width and WRAP, destroying credit rather than
+    adding it.
+
+So multi-strike layouts over the state do not collapse onto one integer and were NOT enumerated.
+Every (target, bit, strike cycle) class IS measured with real runs -- 3 bits x 33 strike cycles
+spread across the run -- and reported. Claiming layout-exhaustiveness there would be the one
+dishonest thing in this folder.
+
+4.2 WHAT ONE FLIP ACTUALLY DOES
+--------------------------------
+STREAM BITS. One flip changes the credit by exactly +/-1, which changes the answer by at most one
+output bit, 1/256 = 0.0039. There is no gradation and no bit is special -- the same flat risk
+profile the MUX has, and the opposite of uMUL where one bit is worth 64 times the others.
+
+STATE BITS, measured over every bit and 33 strike cycles each:
+
+    target        bit   weight   worst |delta| over all strike cycles
+    accumulator    0      1      1 output bit  = 0.003906
+    PC bus         0      1      1 output bit  = 0.003906
+    PC bus         1      2      1 output bit  = 0.003906
+
+EVERY BIT OF uSADD's BINARY STATE IS WORTH AT MOST 1/256 -- exactly what one ordinary stream bit
+is worth. Its state is no more dangerous than its data. Against uMUL's 0.25 for a single strike
+on its operand register, that is 64x smaller, and it is the sharpest number in this poster set.
+
+WHY IT IS BOUNDED. uMUL's register holds an OPERAND: an upset there changes the number being
+multiplied for every remaining cycle, unbounded and never repaired. uSADD's accumulator holds a
+RESIDUE -- credit not yet spent. An upset adds or removes credit ONCE; the unit keeps integrating
+correctly afterwards and the error stops growing. PC strikes behave identically, because A
+integrates whatever PC hands it: a one-cycle bus glitch of +2^b is exactly as if 2^b extra input
+ones had arrived.
+
+4.3 THE FLIP-PLACEMENT MODEL, AND ITS ONE ASSUMPTION
+-----------------------------------------------------
+f flips are placed UNIFORMLY AT RANDOM over the 512 stream sites, without replacement, and
+treated as independent. Every site is equally likely.
+
+That uniformity is defensible here for the same reason it is in MUX_add: all 512 sites are the
+same KIND of thing -- one bit of one unary stream, in the same sort of flip-flop, worth the same
+1/256. There is no register-versus-stream asymmetry to get wrong, because the register is swept
+separately and reported separately. The remaining approximation is clustering; see section 9.
+
+The flip count f is a STRESS AXIS, not a rate. No upset rate appears anywhere in this folder.
+
+4.4 THE ALGORITHM -- PER-REGION GENERATING FUNCTIONS
+-----------------------------------------------------
+One cell in region r can take any of 4 flip masks m over its two bits, costing popcount(m) flips
+and contributing popcount(r XOR m) credit. That is a small polynomial in (flips, credit). A
+region of 64 cells is the 64-fold convolution of it, computed by repeated squaring; the whole
+stream is the convolution of the four region polynomials. The result is
+
+        dp[f][c] = the exact number of flip layouts using f flips that leave total credit c
+
+and the output for each is floor(c / 2).
+
+THE ARITHMETIC GUARANTEE. Summed over all outcomes the layout count at each level must be
+C(512, f) exactly. The .cpp ASSERTS this at every flip level (EXPECT_NEAR(wsum, 1.0, 1e-6)), so a
+broken enumeration fails the build rather than shipping a wrong figure.
+
+NO CLAMP APPLIES. Credit stays in [220, 292], so at most 146 emissions are needed in 256 cycles
+and the accumulator never runs out of drain capacity. That is not assumed -- it is confirmed by
+the random trials of step 4 agreeing with the enumeration.
+
+
+================================================================================================
+5. THE TRIAL LEDGER
+================================================================================================
+
+STEP 0 -- THE LITERAL EXPERIMENT
+    "Every arrangement of the two streams, with every possible layout of 0 to 36 flipped bits
+    across the 512 that carry them."
+
+        arrangements                  C(256,128)^2              = 10^151.52
+        flip layouts, 0..36, on 512   SUM C(512,f)              = 2.8183e55
+        ------------------------------------------------------------------------
+        TOTAL LITERAL TRIALS                                    = 10^206.97
+
+    Identical to the AND-gate multiplier's literal space, since both have two 256-bit operands
+    and a 512-bit surface. The MUX adder's is larger still at 10^285.53, because of its third
+    stream.
+
+STEP 1 -- FIX THE OPERANDS AT 0.5 + 0.5.   Scope, not compression. Cost: the results are specific
+    to this operand pair. See section 9.
+
+STEP 2 -- COLLAPSE THE ARRANGEMENTS.       DIVIDE BY 10^151.52
+    Section 3: the output depends only on the total ones count. Every arrangement is literally
+    the same experiment. Lossless -- and here it needs no filter first, unlike the MUX.
+
+STEP 3 -- COLLAPSE THE FLIP LAYOUTS BY OUTCOME.      DOWN TO 703 ROWS
+    At flip level f the reachable outcomes number exactly f+1, since the net credit change runs
+    over {-f, -f+2, ... , +f} and floor(c/2) maps those onto f+1 distinct output counts. Summed
+    over f = 0..36 that is 37*38/2 = 703 (f, k) rows, which is what the CSV contains.
+
+STEP 4 -- MEASURE, DO NOT ASSUME.
+          6 sanity runs             4 shuffled pairs + the two adversarial correlation extremes
+     22,260 warm-up runs            every (L, ja, jb) truncation class, built and run
+        198 state-strike runs       3 bits x 33 strike cycles x (clean + faulted)
+    740,000 Monte Carlo runs        20,000 genuinely random trials at each of 37 flip levels
+    -----------------------------------------------------------------------------------
+    762,464 REAL 256-cycle uSADD simulations
+            (195,190,784 clock cycles)
+
+    COMPRESSION vs the literal experiment:  about 10^201 : 1, with no approximation on the
+    stream surface. Runtime: about 25 seconds.
+
+THE CHECK THAT MAKES IT CREDIBLE. The forward Monte Carlo is genuinely random -- fresh streams, f
+of the 512 sites chosen uniformly by partial Fisher-Yates, flipped for real, unit re-run -- with
+no steering toward any outcome. Its histogram ships in the CSV as MC_Probability beside the
+enumerated Probability. The worst disagreement across all 37 levels is 0.0096, ordinary sampling
+error at 20,000 draws, and it is asserted under 0.02.
+
+
+================================================================================================
+6. FIGURE 1 -- ZERO-FAULT EARLY TERMINATION       (uSADD_Add_poster_warmup.png)
+================================================================================================
+
+THE QUESTION. With no faults, how wrong is the answer if you stop the stream early?
+
+THE ALGORITHM. Truncating at L gives the prefix output floor(credit in the first L cycles / 2),
+where that credit is (ones of a in the prefix) + (ones of b in the prefix). Each is an
+independent HYPERGEOMETRIC draw over its own stream, so the prefix credit is their convolution --
+exact over every arrangement. 22,260 (L, ja, jb) classes cover the whole space, and each one is
+CONSTRUCTED and RUN with the prefix output asserted equal to floor((ja+jb)/2).
+
+HOW TO READ IT. A clean falling curve to exactly 0 at L = 256. Unlike uMUL's warm-up there is no
+non-monotone dip to explain, because there is no low-discrepancy sequence anywhere in this unit
+-- no RNG at all. Unlike the MUX's, the error is smaller at every length, because uSADD counts
+every input bit where the MUX samples one of two.
+
+
+================================================================================================
+7. FIGURE 2 -- FAULT RESPONSE                     (uSADD_Add_poster_faults.png)
+================================================================================================
+
+X is flips over the 512-bit stream surface at 0, 1, 2, 4, 8, 16, 32 on a LOG axis; zero is drawn
+at x = 0.5 and labelled "0", since log(0) does not exist -- its position is cosmetic, its height
+real. Y is the fraction of ones in the answer against an intended 0.5, on 0.35 to 0.65 SHARED
+with the MUX figure so the two can be compared directly.
+
+    BLUE SPINE   full reach, worst under-shoot to worst over-shoot
+    BLUE CAPS    the exact extreme outcomes
+    RED DASHES   the equal-tailed middle 90% (5th and 95th percentiles), not forced symmetric
+    BLUE DOT     trial-weighted mean
+
+THE MEASURED NUMBERS
+    flips    mean       min        max        5th pct    95th pct
+        0    0.500000   0.500000   0.500000   0.500000   0.500000
+        1    0.498047   0.496094   0.500000   0.496094   0.500000
+        2    0.500000   0.496094   0.503906   0.496094   0.503906
+        4    0.500000   0.492188   0.507812   0.492188   0.507812
+        8    0.500000   0.484375   0.515625   0.492188   0.507812
+       16    0.500000   0.468750   0.531250   0.488281   0.511719
+       32    0.500000   0.437500   0.562500   0.484375   0.515625
+       36    0.500000   0.429688   0.570312
+
+THE REACH IS HALF THE MUX'S, at every level. 32 flips move uSADD by +/- 0.0625 and the MUX by
++/- 0.125. That is the 1/2 scaling attenuating input faults BEFORE they reach the output: 32
+flips move the credit by 32 but the answer by only 16 output bits. The MUX has no such
+attenuation -- every live flip there is worth a full output bit. On the shared 0.35-0.65 axis the
+halving is visible without reading a number.
+
+--- WHY THE ONE-FLIP WHISKER ONLY POINTS DOWN -------------------------------------------------
+
+The first thing anyone asks about this figure. At f = 1 the ONLY reachable outcomes are 127 and
+128 output ones -- there is no 129, so there is nothing above 0.5 for the whisker to draw.
+
+It is the floor. uSADD emits floor(credit / 2) and the clean total is 256, an EVEN number sitting
+exactly on a floor boundary:
+
+        flip a 1 -> 0     credit 255     floor(255/2) = 127     loses a whole output bit
+        flip a 0 -> 1     credit 257     floor(257/2) = 128     GAINS NOTHING
+
+The extra credit in the second case is real; it is simply stranded in the accumulator as residue
+instead of becoming an output one. So a single flip can take a bit away or do nothing. It can
+never add one.
+
+IT IS A PARITY EFFECT AND IT REPEATS. The net credit change always has the same parity as the
+flip count, so an odd f always leaves the total odd and the floor always eats the half bit:
+
+    f         1      2      3      4      5      6
+    reach   -1/+0  -1/+1  -2/+1  -2/+2  -3/+2  -3/+3
+    mean    .4980  .5000  .4980  .5000  .4980  .5000
+
+Every ODD flip level reaches one step further down than up and sits exactly half an output bit
+low; every EVEN one is symmetric and exactly on target.
+
+THIS IS THE ONLY PLACE IN THE POSTER SET WHERE A MEAN IS NOT PINNED ON ITS TARGET. The AND gate,
+uMUL and the MUX are all exactly on target at every flip level. uSADD is too at even f, and
+0.498047 at odd f. It is not drift and not a bug -- it is the same residue that is the unit's
+only healthy error, showing up in the fault response. THE ACCUMULATOR CAN WITHHOLD OUTPUT BUT
+NEVER MANUFACTURE IT, so uSADD's error is always a deficit, never a surplus.
+
+If you would rather the figure not show the quirk, plotting only even flip levels would make
+every whisker symmetric. Keeping f = 1 and explaining it is the better choice: it is a genuine
+property of carry-based scaled addition, not an artifact of how the sweep was run.
+
+
+================================================================================================
+8. CSV COLUMN REFERENCE
+================================================================================================
+
+uSADD_Add_poster_warmup.csv  -- one row per truncation length
+    N                   truncation point in cycles (2, 4, ... 256)
+    MeanEstimate        arrangement-weighted mean of floor(prefix credit / 2) / L
+    MeanAbsError        arrangement-weighted mean of |that - 0.5|.    <- FIGURE 1's Y AXIS
+    MinEstimate         lowest estimate over all classes at this length
+    MaxEstimate         highest estimate over all classes at this length
+    Classes             (ja, jb) classes summed at this length
+    Log10Arrangements   151.52 -- log10 of C(256,128)^2, both streams
+
+uSADD_Add_poster_faults.csv  -- one row per (flip level, reachable outcome), 703 rows
+    BitsFlipped         f, injected flips over the 512-bit stream surface  <- FIGURE 2's X AXIS
+    OutputOnes          k, measured ones in the faulted output
+    OutputFraction      k/256                                              <- FIGURE 2's Y AXIS
+    ErrorPerN           (k - 128)/256, the signed error
+    Probability         exact share of all layouts at this f landing on k
+    MC_Probability      the same share as MEASURED by 20,000 random trials
+    MC_Trials           20000
+    LevelRealTrials     real gate simulations at this flip level
+    Log10TrialCount     log10 of the raw layout count reaching this outcome
+
+uSADD_Add_poster_state.csv  -- one row per (target, bit, strike cycle); 99 rows
+    Target              accumulator or pc_bus
+    Bit, Weight         which bit and its 2^bit weight
+    StrikeCycle         the cycle the strike was injected on
+    CleanOnes           output ones with no strike
+    FaultedOnes         output ones with the strike
+    DeltaOnes           FaultedOnes - CleanOnes. Never exceeds 1 in magnitude; section 4.2.
+    DeltaFraction       DeltaOnes/256
+
+
+================================================================================================
+9. HONEST LIMITATIONS
+================================================================================================
+
+ -  ONE OPERAND PAIR. Everything is 0.5 + 0.5. The parity effect of section 7 depends on the
+    clean credit total being EVEN (256); at an odd total the asymmetry would sit on even flip
+    counts instead. The reach and the 1/2 attenuation hold for any operands.
+
+ -  THE STATE SWEEP IS SITE-EXHAUSTIVE, NOT LAYOUT-EXHAUSTIVE. Section 4.1 gives the reason:
+    register strikes are time-dependent and do not collapse. Every bit and 33 strike cycles are
+    measured, but multi-strike layouts over the accumulator and PC bus are not enumerated, and
+    the two surfaces are not swept jointly. A campaign that struck the streams AND the state in
+    the same run would find combinations this file does not.
+
+ -  THE ACCUMULATOR WRAPS RATHER THAN SATURATING on overflow. With a one-bit register at n = 2
+    that is nearly unreachable, but it is a modelling choice: if the real RTL saturates, a
+    large-strike case would differ. uGEMM's text confirms the carry mechanism but does not
+    specify the overflow behaviour, so this is the remaining place the model could diverge from
+    the hardware.
+
+ -  AN EARLIER REVISION OVERSTATED THE STATE SURFACE. It sized the accumulator to hold the
+    pre-drain sum (2 bits at n = 2) rather than the residue (1 bit), because the carry mechanism
+    had been inferred rather than read. The healthy arithmetic was identical -- compare-and-
+    subtract IS a carry -- but the accumulator appeared to have twice the fault cross-section it
+    really has, and the worst single state strike was reported as 0.0078 instead of 0.0039. The
+    numbers in this file are the corrected ones.
+
+ -  UNIFORM, INDEPENDENT FLIP PLACEMENT. Real single-event upsets cluster; a multi-bit upset on
+    two adjacent stream bits is more likely than this model says. Uniformity across the two
+    streams is on firm ground here because every site is the same kind of flip-flop.
+
+ -  NO AREA OR POWER COMPARISON. uSADD needs a parallel counter and an accumulator where the MUX
+    needs one gate. That cost is real and is not measured here. It is the one axis on which the
+    MUX wins, and the poster should say so.
+================================================================================================
