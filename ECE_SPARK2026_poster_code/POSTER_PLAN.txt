@@ -70,16 +70,25 @@ FIVE figures. Two rows of two for the comparison, one centrepiece that carries t
            inside +/- 0.03. Nothing is special, nothing is catastrophic.
 
       [2]  Multiplication/uMUL_mul/uMUL_poster_faults_damaged.png
-           uMUL when its register is struck. Reaches 0.000 from ONE flip and stays reachable
-           there at every level. Put it directly beside [1] on the same page and the contrast
-           needs no caption.
+           uMUL's REGISTER-ONLY campaign. Reaches 0.000 from ONE flip. Put it directly beside [1]
+           and the contrast needs no caption.
 
-           SAY OUT LOUD that this is the conditional plot: it is what happens GIVEN a register
-           bit was hit, which is 3% of single upsets. Its companion
-           uMUL_poster_faults_intact.png is the other 97% and it looks like [1]. Showing only
-           the damaged half without saying so would be cherry-picking; showing both halves and
-           the 3% is the honest and more interesting claim -- uMUL fails RARELY and
-           CATASTROPHICALLY, the AND gate fails CONSTANTLY and NEGLIGIBLY.
+           NOTE THIS IS NO LONGER A CONDITIONAL PLOT. It used to be "what happens GIVEN a
+           register bit was hit", drawn from the same sweep as its companion. It is now its own
+           experiment -- flips land only on the 8 register bits, 180,988 real gate simulations of
+           its own -- and its x axis is LINEAR and stops at 8, because the register has 8 bits.
+           Do not describe it as a slice or a percentage of anything.
+
+           STILL SAY THE FREQUENCY OUT LOUD, because the separate campaigns no longer state it
+           for you. Of a single upset landing anywhere in uMUL's 264 bits of operand storage,
+           8/264 = 3% hits the register. Its companion uMUL_poster_faults_intact.png is the other
+           97% and it looks like [1]. The honest and more interesting claim is the pair: uMUL
+           fails RARELY and CATASTROPHICALLY, the AND gate fails CONSTANTLY and NEGLIGIBLY.
+
+           ONE COUNTERINTUITIVE POINT WORTH A SENTENCE: on [2] the damage is WORST AT ONE FLIP.
+           The floor rises after that and at 8 flips the answer is back at exactly 0.25 -- 128
+           XOR 255 = 127, which still reads 64/256. For this register, one upset is the dangerous
+           number, which is the opposite of what a fault model usually assumes.
 
     ROW 2 -- ADDITION: THE TRADE GOES WELL
       [3]  Addition/MUX_add/MUX_Add_poster_faults.png
@@ -92,11 +101,29 @@ FIVE figures. Two rows of two for the comparison, one centrepiece that carries t
 
     CENTREPIECE -- WHY
       [5]  Multiplication/uMUL_mul/uMUL_poster_register.png
-           uMUL's 8-bit operand register expanded: each bit's single-flip damage against the
-           stream bit's +/- 1/256 drawn as a dashed reference. Seven bits push the answer up by
-           geometrically growing amounts; bit 7 takes it to a hard zero. ONE upset there is worth
-           64 stream upsets, and the panel shows exactly why: value = 128 has one bit set, so
-           clearing it clears the operand.
+           uMUL's 8-bit operand register expanded: the SIZE of each bit's single-flip damage,
+           against one stream bit's 1/256 as a dashed reference. A clean geometric ladder from 1x
+           to 64x, doubling every bit.
+
+           THIS PANEL IS ABSOLUTE VALUE, DELIBERATELY, AND THAT IS WHAT MAKES IT THE CENTREPIECE.
+           |delta| = (2^b / 2^width) * p0, which depends on the BIT and not on what the register
+           holds. Only the SIGN depends on the operand -- bit clear means the flip sets it and the
+           answer rises, bit set means the flip clears it and the answer falls. So you can stand
+           at the poster and say "one upset in the top register bit does what 64 stream upsets do"
+           for ANY number the register might hold, not just 0.5.
+
+           THE SIGNED VERSION WAS ABOUT 128, NOT ABOUT uMUL. It showed seven bars up and one down,
+           and that shape is an accident of 128 being one-hot -- at value 64 it would be bit 6
+           pointing down, at 255 every bar would point down. Absolute value removes the example
+           and leaves the architecture.
+
+           IF SOMEONE ASKS "so which bit takes it to zero?", that is figure [2]'s floor, not this
+           panel's job. For value = 128 it is bit 7, because 128 has exactly one bit set so
+           clearing it clears the whole operand. Say it as the example it is.
+
+           THE BOTTOM TWO BARS BOTH READ 1x, and that is the output quantising, not a broken
+           ladder: the answer is a count out of 256 and cannot move by less than 1/256, so bit 0's
+           ideal 0.002 floors up. Below bit 1 the register is finer than the answer can express.
 
            SAY THE uSADD HALF OUT LOUD RATHER THAN PLOTTING IT. uSADD also puts state in a
            binary register, and the worst ONE strike on any of its three state bits (1-bit
@@ -111,21 +138,32 @@ FIVE figures. Two rows of two for the comparison, one centrepiece that carries t
 4. HOW TO COMPARE THEM FAIRLY -- READ THIS BEFORE MOUNTING ANYTHING
 ------------------------------------------------------------------------------------------------
 
-  SAME X AXIS, DIFFERENT SURFACE SIZES. All four figures use "bits flipped" on the same log
-  ticks, but the surfaces differ: 512 (AND), 264 (uMUL), 768 (MUX), 512 (uSADD). f = 8 is
-  therefore a heavier dose for uMUL than for the MUX. State the surface size on each figure --
-  all four already do, in the x-axis label -- and do NOT let a reader infer that equal f means
+  SAME X AXIS, DIFFERENT SURFACE SIZES -- EXCEPT ONE. Most figures use "bits flipped" on the same
+  log ticks, but the surfaces differ: 512 (AND), 256 (uMUL stream), 768 (MUX), 512 (uSADD). f = 8
+  is therefore a heavier dose for uMUL's stream than for the MUX. State the surface size on each
+  figure -- they all do, in the x-axis label -- and do NOT let a reader infer that equal f means
   equal stress. The honest framing is "given f upsets landed here, this is what happens".
 
-  CHECK THE VERTICAL SCALES. Two of them are shared on purpose and one pair is not:
-      SHARED     [1] AND gate and uMUL's operand-INTACT figure both run 0.10 to 0.40, so they
-                 can be mounted side by side and compared directly. That comparison is the
-                 point of the pair, so do not retune one without the other.
-      NOT SHARED uMUL's intact (0.10-0.40) against its damaged (0-0.70). On the damaged figure's
-                 axis the intact panel would be a flat line, which is itself the result but shows
-                 nothing. Both subtitles state their range.
+  THE ONE EXCEPTION IS uMUL'S REGISTER FIGURE [2], AND IT IS NOT A LOG AXIS AT ALL. It runs 0..8
+  LINEAR, because the register has eight bits and there is no ninth flip to plot. Do not mount it
+  as though its x axis were comparable to the others -- "4" on that figure means half the operand
+  register is gone, while "4" on any other figure means four bits out of hundreds. If anything,
+  that incomparability is the point worth saying out loud.
+
+  CHECK THE VERTICAL SCALES. One pair is shared on purpose and one pair is not:
+      SHARED     [1] AND gate and uMUL's STREAM figure both run 0.10 to 0.40, so they can be
+                 mounted side by side and compared directly. That comparison is the point of the
+                 pair -- same kind of storage, same behaviour -- so do not retune one alone.
+      NOT SHARED uMUL's stream (0.10-0.40) against its register (0-0.70). On the register
+                 figure's axis the stream panel would be a flat line, which is itself the result
+                 but shows nothing.
       DIFFERENT  The multiplication figures centre on 0.25 and the addition figures on 0.5.
   Do not compare whisker heights across figures by eye without reading the axis first.
+
+  THE TWO uMUL FAULT FIGURES ARE SEPARATE EXPERIMENTS AND EACH QUOTES ITS OWN TRIAL COUNT --
+  740,140 for the stream, 180,988 for the register. They share no trials. An earlier version ran
+  one joint sweep and split the outcomes, which meant both panels printed the same 806,376 and
+  double-counted it. If anyone asks "is that the same data twice?", the answer is now a clean no.
 
   THE MEAN IS PINNED AT THE TARGET IN THREE OF THE FOUR UNITS -- the AND gate, uMUL and the MUX
   adder all sit exactly on target at every flip level. Faults add variance, not drift. That makes
@@ -142,9 +180,18 @@ FIVE figures. Two rows of two for the comparison, one centrepiece that carries t
   answer, and it is the same residue that is the unit's only healthy error. The accumulator can
   withhold output but never manufacture it.
 
-  FOR uMUL, DO NOT QUOTE A STANDARD DEVIATION AT ALL: 95% of its variance comes from 3% of its
-  trials, so mean +/- sigma is wrong in both directions at once (see
-  uMUL_mul/HOW_THIS_DATA_WAS_MADE.txt section 6c).
+  FOR uMUL, QUOTE A STANDARD DEVIATION FOR THE STREAM AND NEVER FOR THE REGISTER. Separating the
+  campaigns sharpened this considerably. Measured per surface, the stream's skewness is EXACTLY
+  0.000 at every flip level and its excess kurtosis halves toward zero (-2.00, -0.99, -0.49,
+  -0.24, -0.11, -0.05) -- it is Gaussian, and it matches the AND gate almost exactly. All of
+  uMUL's non-normality lives in the 8 register bits, where the distribution is BIMODAL: at one
+  flip the +/- 1.645 sigma window holds 87.5% of trials, which is exactly 7/8, because the window
+  catches the seven upward outcomes and excludes the single zero.
+
+  So the correct poster language is TWO sentences, not one: report the stream as an error bar and
+  the register as a probability of catastrophic failure. They are different failure modes in one
+  unit. (See uMUL_mul/HOW_THIS_DATA_WAS_MADE.txt section 6c. The old joint sweep reported skew
+  -8.4 for "uMUL", which was really the two surfaces averaged together and hid this.)
 
 ------------------------------------------------------------------------------------------------
 5. THE ONE-LINE CAPTIONS

@@ -55,11 +55,11 @@ TAIL       = 0.05;
 % Font sizes are set HERE and applied in style_axes, which overrides whatever each xlabel/title
 % call asked for. One place to tune, and it keeps the four scripts identical.
 STY = struct( ...
-    'bg',    [0.62 0.62 0.62], ...   % the PLOT PANEL only
+    'bg',    [0.80 0.80 0.80], ...   % the PLOT PANEL only -- light grey
     'figbg', [1.00 1.00 1.00], ...   % figure surround + exported margin: WHITE
     'fg',    [0.10 0.10 0.10], ...   % axes, ticks, labels, titles
     'grid',  [1.00 1.00 1.00], ...   % divider lines, WHITE on the grey panel
-    'legbg', [0.72 0.72 0.72], ...   % legend panel, a touch lighter so it lifts off the axes
+    'legbg', [0.93 0.93 0.93], ...   % legend panel, near-white so it lifts off the light panel
     'tick',  14, ...                 % tick labels
     'label', 15, ...                 % axis labels
     'title', 15);                    % titles
@@ -69,6 +69,17 @@ W = readtable(warmCsv,  'Delimiter', ',');
 F = readtable(faultCsv, 'Delimiter', ',');
 BLUE = [0.10 0.28 0.85];
 RED  = [0.90 0.20 0.20];
+
+% Real gate runs behind the fault figure, quoted in that figure's title. LevelRealTrials is
+% constant within a flip level and repeated on every row of that level, so take one value per
+% level and add them up -- summing the column directly would multiply by the row count.
+[~, iFirstLvl] = unique(F.BitsFlipped);
+realRuns = sum(F.LevelRealTrials(iFirstLvl));
+
+% 740000 -> "740,000". Trial counts on a poster are unreadable without the separators.
+function s = commafy(n)
+    s = fliplr(regexprep(fliplr(sprintf('%d', round(n))), '(\d{3})(?=\d)', '$1,'));
+end
 
 % Equal-tailed middle 90%: 5th and 95th percentiles, nothing forced symmetric. Written the same
 % way in every script in this poster set so one estimator is used throughout.
@@ -114,10 +125,11 @@ ax1.XMinorTick = 'off';  ax1.YMinorTick = 'off';
 xticks(ax1, W.N); xticklabels(ax1, string(W.N));
 xlim(ax1, [min(W.N)*0.85, max(W.N)*1.15]);
 xlabel(ax1, 'Bit Stream Length  (early termination point) [log]', 'FontSize', 13);
-ylabel(ax1, 'Mean Absolute Error', 'FontSize', 13);
-title(ax1, {'MUX Scaled Adder -- Zero-Fault Warm-Up', ...
-            sprintf(['(0.5 + 0.5)/2 = 0.5   |   exhaustive over all 10^{%.0f} decorrelated ' ...
-                     'arrangements'], W.Log10Arrangements(1))}, 'FontSize', 13);
+ylabel(ax1, 'Mean Absolute Error', 'FontSize', 15);
+% TITLE IS THE OPERATION AND THE TRIAL BASIS, NOTHING ELSE -- the poster labels the panel above
+% it. Arrangements, not realRuns: realRuns counts the fault campaign, this is the warm-up sweep.
+title(ax1, sprintf(['(0.5 + 0.5)/2 = 0.5   |   exhaustive over all 10^{%.0f} decorrelated ' ...
+                    'arrangements'], W.Log10Arrangements(1)), 'FontSize', 15);
 ax1.Toolbar.Visible = 'off';
 
 %% ---------------------------------------------------------------------------------------
@@ -164,9 +176,11 @@ xlim(ax2, [0.38 max(SHOW_FLIPS) * 2.6]);
 ylim(ax2, [0.35 0.65]);
 xticks(ax2, xpos);  xticklabels(ax2, string(SHOW_FLIPS));
 xlabel(ax2, 'Bits Flipped  (over the 768-bit operand surface, a + b + select) [log]', 'FontSize', 12);
-ylabel(ax2, 'Fraction of Ones in the Final Answer', 'FontSize', 13);
-title(ax2, {'MUX Scaled Adder -- Fault Response', ...
-            'three operand streams, 768 flippable bits, select INCLUDED'}, 'FontSize', 13);
+ylabel(ax2, 'Final Answer', 'FontSize', 15);
+% The "select stream INCLUDED" point is now made by the x-axis label alone (768-bit surface,
+% a + b + select) rather than in the title, which is operation + trial basis only.
+title(ax2, sprintf('(0.5 + 0.5)/2 = 0.5   |   %s real gate simulations', ...
+                   commafy(realRuns)), 'FontSize', 15);
 hold(ax2, 'on');
 pB = plot(ax2, NaN, NaN, '-', 'Color', BLUE, 'LineWidth', 1.8);
 pR = plot(ax2, NaN, NaN, '-', 'Color', RED,  'LineWidth', 2.4);

@@ -48,7 +48,12 @@ using namespace StochasticSimulator;
 //     |delta| = (2^b / 2^width) * p0
 // so the MSB is worth p0/2 = 0.25 here REGARDLESS of the operand. Only the SIGN depends on the
 // data. That is the honest statement, and it is what this test pins down.
-TEST(UnaryMultiplierTest, TopBitIsMagnitudeNotSign) {
+// SUITE NAME IS DELIBERATELY *NOT* UnaryMultiplierTest. That name belongs to the TEST_F fixture
+// further down, and googletest refuses to run a suite that mixes TEST and TEST_F -- it fails
+// EVERY test in the suite with "All tests in the same test suite must use the same test fixture".
+// This test and RegisterBitDamageCountsSobolPointsCrossed below need no fixture (they build their
+// own multiplier per run), so they live in their own suite instead.
+TEST(UnaryMultiplierFaultTest, TopBitIsMagnitudeNotSign) {
     constexpr unsigned WIDTH = 8;
     constexpr int N = 256;
     constexpr int ONES = 128;                 // p0 = 0.5, so 128 enabled cycles
@@ -97,6 +102,141 @@ TEST(UnaryMultiplierTest, TopBitIsMagnitudeNotSign) {
             else         EXPECT_GT(delta, 0.0) << "setting a clear bit must raise the operand";
         }
         std::cout << std::setw(9) << setbits << "\n";
+    }
+    std::cout << std::endl;
+}
+
+// ================================================================================================
+// WHY THE PER-BIT DAMAGE LADDER IS NOT A CLEAN 2^b, AND EXACTLY WHEN IT IS
+// ================================================================================================
+//
+// The poster's register panel plots |delta| for each register bit and calls the result a
+// geometric ladder, 1x 1x 2x 4x 8x 16x 32x 64x in units of one stream bit. Bits 0 and 1 land on
+// the SAME value, which looks like a broken ladder. It is not, and "output quantisation" is too
+// vague an explanation. The exact law is:
+//
+//     |delta| in OUTPUT BITS  =  the number of consumed Sobol points lying in the interval
+//                                between the two operand values
+//
+// because the output is out(v) = #{ j < n1 : v > sobol[j] }, so out(v2) - out(v1) counts exactly
+// the points the operand swept past. Flipping bit b moves the operand between m and m + 2^b where
+// m is v with bit b cleared -- a DYADIC-ALIGNED interval of width 2^b.
+//
+// NOW THE SOBOL PROPERTY DOES THE REST. The first n1 = 2^k points of a width-w Sobol sequence form
+// a (0,k,1)-net in base 2: every dyadic interval of length 2^(w-k) holds exactly one point. So an
+// aligned interval of width 2^b holds exactly
+//
+//     2^b / 2^(w-k) = 2^(b-w+k)  points,  PROVIDED b >= w-k
+//
+// and for b < w-k the interval is narrower than the net's resolution, so it holds 0 or 1 -- the
+// ladder cannot resolve those bits and they all collapse onto the same rung.
+//
+//     THE THRESHOLD IS  b* = w - k = log2(2^w / n1) = log2(1/p0).
+//
+// AT p0 = 0.5 (w=8, k=7) b* = 1, so exactly ONE bit -- bit 0 -- is sub-resolution, and it shares
+// bit 1's rung. That is the whole of the "anomaly", and it IS situational: at p0 = 0.25 the
+// threshold moves to b* = 2 and bits 0 AND 1 both collapse. This test measures both.
+//
+// The 2^b/2^w * p0 formula quoted on the figure is therefore exact for b >= log2(1/p0) and an
+// over-estimate below it. Nothing here depends on the operand VALUE -- only on the stream density.
+TEST(UnaryMultiplierFaultTest, RegisterBitDamageCountsSobolPointsCrossed) {
+    constexpr unsigned WIDTH = 8;
+    constexpr int N = 256;
+    constexpr int SCALE = 1 << WIDTH;         // 256 operand values, 0..255
+
+    // One real gate run. in_0 packed at the front -- position never matters, only the count.
+    auto run = [&](uint64_t value, int ones) {
+        UnaryMultiplier m(WIDTH, 1);
+        m.load_value(value);
+        int k = 0;
+        for (int i = 0; i < N; ++i) if (m.multiply(i < ones)) ++k;
+        return k;
+    };
+
+    for (int n1 : {128, 64}) {
+        const double p0 = static_cast<double>(n1) / N;
+
+        // out[v] for every operand, measured. out[SCALE] is not expressible in an 8-bit register,
+        // but it is definitionally n1: an operand of 256 exceeds every point in [0,255].
+        std::vector<int> out(SCALE + 1);
+        for (int v = 0; v < SCALE; ++v) out[v] = run(static_cast<uint64_t>(v), n1);
+        out[SCALE] = n1;
+
+        // RECOVER THE CONSUMED POINT SET BY DIFFERENCING, rather than reimplementing Sobol here.
+        // out(v+1) - out(v) = #{ j < n1 : sobol[j] == v }, so this reads the generator's actual
+        // behaviour out of real gate runs. A reimplementation could drift from the module; this
+        // cannot.
+        std::vector<int> consumed(SCALE);
+        int total = 0;
+        for (int v = 0; v < SCALE; ++v) {
+            consumed[v] = out[v + 1] - out[v];
+            EXPECT_GE(consumed[v], 0) << "output must be monotone in the operand";
+            EXPECT_LE(consumed[v], 1) << "a Sobol point cannot be consumed twice";
+            total += consumed[v];
+        }
+        ASSERT_EQ(total, n1) << "exactly n1 points should be consumed at p0 = " << p0;
+
+        // ---- THE INTERVAL LAW, over every operand and every bit -------------------------------
+        for (int v = 0; v < SCALE; ++v) {
+            for (int b = 0; b < static_cast<int>(WIDTH); ++b) {
+                const int m = v & ~(1 << b);            // interval base: v with bit b cleared
+                int points = 0;
+                for (int u = m; u < m + (1 << b); ++u) points += consumed[u];
+
+                const int measured = std::abs(out[v ^ (1 << b)] - out[v]);
+                ASSERT_EQ(measured, points)
+                    << "damage from bit " << b << " on operand " << v << " at p0 = " << p0
+                    << " is not the count of Sobol points crossed";
+            }
+        }
+
+        // ---- THE NET PROPERTY, i.e. WHICH RUNGS ARE EXACT -------------------------------------
+        // b* = log2(2^w / n1). At or above it the damage is a constant 2^(b-b*) for EVERY operand;
+        // below it the bit is finer than the net can resolve.
+        int bstar = 0;
+        while ((n1 << bstar) < SCALE) ++bstar;
+
+        std::cout << "\n  p0 = " << std::fixed << std::setprecision(3) << p0
+                  << "   n1 = " << n1 << "   sub-resolution below bit b* = " << bstar << "\n"
+                  << "   bit   ideal 2^b/2^w*p0   measured |delta|   in stream bits   exact?\n";
+
+        for (int b = 0; b < static_cast<int>(WIDTH); ++b) {
+            // Damage from bit b, over every operand. If the net property holds it is constant.
+            int lo = N, hi = 0;
+            for (int v = 0; v < SCALE; ++v) {
+                const int d = std::abs(out[v ^ (1 << b)] - out[v]);
+                lo = std::min(lo, d);  hi = std::max(hi, d);
+            }
+            const double ideal = (static_cast<double>(1 << b) / SCALE) * p0;
+
+            std::cout << "   " << std::setw(3) << b << std::setw(16) << std::setprecision(6)
+                      << ideal << std::setw(17)
+                      << (static_cast<double>(hi) / N) << std::setw(16) << hi
+                      << (b >= bstar ? "     yes\n" : "     no, floored\n");
+
+            if (b >= bstar) {
+                // AT OR ABOVE THE RESOLUTION LIMIT the damage is exact and operand-independent.
+                EXPECT_EQ(lo, hi) << "bit " << b << " damage varies with the operand at p0 = " << p0;
+                EXPECT_EQ(hi, (n1 << b) / SCALE)
+                    << "bit " << b << " is not worth 2^b * p0 output bits at p0 = " << p0;
+                EXPECT_NEAR(static_cast<double>(hi) / N, ideal, 1e-12)
+                    << "the figure's (2^b/2^w)*p0 formula should be EXACT here";
+            } else {
+                // BELOW IT the bit cannot be resolved: at most one point sits in the interval, so
+                // the rung is 0 or 1 output bits and the ideal formula OVER-estimates nothing --
+                // it under-estimates, because a whole bit is the smallest step that exists.
+                EXPECT_LE(hi, 1) << "a sub-resolution bit cannot move the answer by 2 bits";
+                EXPECT_LT(ideal, 1.0 / N)
+                    << "bit " << b << " should be finer than one output bit at p0 = " << p0;
+            }
+        }
+
+        // THE POSTER'S HEADLINE, asserted: the top bit is worth half the operand's full scale, so
+        // p0/2 of the answer, whatever the operand holds. 0.25 at p0 = 0.5.
+        for (int v = 0; v < SCALE; ++v) {
+            const double d = std::abs(out[v ^ (1 << (WIDTH - 1))] - out[v]) / static_cast<double>(N);
+            EXPECT_NEAR(d, p0 / 2.0, 1e-12) << "top-bit damage on operand " << v;
+        }
     }
     std::cout << std::endl;
 }

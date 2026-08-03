@@ -100,7 +100,7 @@ set(FAULT_INJECTION_TESTS
   # the working directory, so the poster folder stays self-contained.
   "ECE_SPARK2026_poster_code/Multiplication/AND_mul/AND_Mul_poster.cpp"      # -> 2 CSVs in AND_mul/
   "ECE_SPARK2026_poster_code/Multiplication/AND_mul/AND_Mul_sign_bias.cpp"    # -> AND_Mul_sign_bias.csv
-  "ECE_SPARK2026_poster_code/Multiplication/uMUL_mul/uMUL_poster.cpp"        # -> 3 CSVs in uMUL_mul/
+  "ECE_SPARK2026_poster_code/Multiplication/uMUL_mul/uMUL_poster.cpp"        # -> 4 CSVs in uMUL_mul/
   "ECE_SPARK2026_poster_code/Addition/MUX_add/MUX_Add_poster.cpp"             # -> 3 CSVs in MUX_add/
   "ECE_SPARK2026_poster_code/Addition/uSADD_add/uSADD_Add_poster.cpp"         # -> 3 CSVs in uSADD_add/
 

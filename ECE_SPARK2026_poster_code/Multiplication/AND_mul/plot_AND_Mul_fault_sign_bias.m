@@ -1,4 +1,4 @@
-%% plot_AND_Mul_fault_sign_bias.m                     ECE SPARK 2026 -- AND multiplier
+﻿%% plot_AND_Mul_fault_sign_bias.m                     ECE SPARK 2026 -- AND multiplier
 %
 % Reads AND_Mul_sign_bias.csv (written by AND_Mul_sign_bias.cpp in this folder) and saves
 % AND_Mul_poster_fault_sign_bias.png here. Nothing outside this folder is touched.
@@ -50,7 +50,7 @@ end
 
 %% POSTER STYLE -- identical to the other scripts in this folder set.
 STY = struct( ...
-    'bg',    [0.62 0.62 0.62], ...   % the PLOT PANEL only
+    'bg',    [0.80 0.80 0.80], ...   % the PLOT PANEL only -- light grey
     'figbg', [1.00 1.00 1.00], ...   % figure surround + exported margin: WHITE
     'fg',    [0.10 0.10 0.10], ...   % axes, ticks, labels, titles
     'grid',  [1.00 1.00 1.00], ...   % divider lines, WHITE on the grey panel
@@ -126,9 +126,11 @@ text(ax, 1, -lim * 0.86, '1s SUBTRACTED', ...
 
 xlabel(ax, 'Ones in the Faulted Input Stream  (of 32)', 'FontSize', 15);
 ylabel(ax, {'1s Added or Subtracted on Average', 'once all faults are applied'}, 'FontSize', 15);
-title(ax, {'AND-Gate Multiplier -- Fault Sign Bias', ...
-           'exhaustive: every operand pair, every flip count 0-32, every combination'}, ...
-      'FontSize', 15);
+% Operation and trial basis only -- the poster names the panel above it. This figure is not a
+% single operand pair like the other panels, so the operation is written generically as a x b.
+% Trimmed to two clauses: the "flip count 0-32" detail ran the line into both axes edges at this
+% font size, and the x-axis already says the stream is 32 bits.
+title(ax, 'a \times b   |   every operand pair, every flip combination', 'FontSize', 15);
 
 style_axes(ax, STY);
 set(fig, 'Color', STY.figbg);

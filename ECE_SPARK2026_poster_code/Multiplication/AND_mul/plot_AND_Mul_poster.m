@@ -77,11 +77,11 @@ MARGIN_PX  = 40;                 % border added around every exported PNG, at 30
 % Font sizes are set HERE and applied in style_axes, which overrides whatever each xlabel/title
 % call asked for. One place to tune, and it keeps the four scripts identical.
 STY = struct( ...
-    'bg',    [0.62 0.62 0.62], ...   % the PLOT PANEL only
+    'bg',    [0.80 0.80 0.80], ...   % the PLOT PANEL only -- light grey
     'figbg', [1.00 1.00 1.00], ...   % figure surround + exported margin: WHITE
     'fg',    [0.10 0.10 0.10], ...   % axes, ticks, labels, titles
     'grid',  [1.00 1.00 1.00], ...   % divider lines, WHITE on the grey panel
-    'legbg', [0.72 0.72 0.72], ...   % legend panel, a touch lighter so it lifts off the axes
+    'legbg', [0.93 0.93 0.93], ...   % legend panel, near-white so it lifts off the light panel
     'tick',  14, ...                 % tick labels
     'label', 15, ...                 % axis labels
     'title', 15);                    % titles
@@ -199,9 +199,15 @@ xticks(ax1, W.N); xticklabels(ax1, string(W.N));
 xlim(ax1, [min(W.N)*0.85, max(W.N)*1.15]);
 xlabel(ax1, 'Bit Stream Length  (early termination point) [log]', 'FontSize', 13);
 ylabel(ax1, 'Mean Absolute Error', 'FontSize', 13);
-title(ax1, {'AND-Gate Multiplier -- Zero-Fault Warm-Up', ...
-            sprintf('0.5 \\times 0.5 = 0.25   |   exhaustive over all 10^{%.0f} arrangements', ...
-                    W.Log10Arrangements(1))}, 'FontSize', 14);
+% TITLE IS THE OPERATION AND THE TRIAL COUNT, NOTHING ELSE. The poster already labels each panel
+% above it ("AND Mul Fault Behavior" and so on), so repeating the unit name inside the image is
+% duplication. What the image has to carry is the arithmetic it ran and how much of it it ran.
+%
+% NOTE this panel quotes ARRANGEMENTS, not realRuns. realRuns comes from the fault CSV and counts
+% the fault campaign only; the warm-up is a separate sweep whose trial basis is the exhaustive
+% arrangement count in its own file. Quoting the fault campaign's number here would be wrong.
+title(ax1, sprintf('0.5 \\times 0.5 = 0.25   |   exhaustive over all 10^{%.0f} arrangements', ...
+                   W.Log10Arrangements(1)), 'FontSize', 15);
 ax1.Toolbar.Visible = 'off';
 
 %% ---------------------------------------------------------------------------------------
@@ -282,12 +288,11 @@ ylim(ax2, [0.10 0.40]);
 xticks(ax2, xpos);
 xticklabels(ax2, string(SHOW_FLIPS));
 xlabel(ax2, 'Bits Flipped  (across both 256-bit streams) [log]', 'FontSize', 13);
-ylabel(ax2, 'Fraction of Ones in the Final Answer', 'FontSize', 13);
-% Subtitle kept to two clauses. A third ("bounds are measured extremes") pushed the line past
-% both edges of the axes at this font size; that claim lives in the legend entry instead.
-title(ax2, {'AND-Gate Multiplier -- Fault Response', ...
-            sprintf('0.5 \\times 0.5 = 0.25   |   %s real gate simulations', ...
-                    commafy(realRuns))}, 'FontSize', 14);
+ylabel(ax2, 'Final Answer', 'FontSize', 15);
+% Same single-line title as ax1: operation, then how many real gate runs stand behind it.
+% commafy(realRuns), not a hardcoded number -- the count moves if the campaign is re-run.
+title(ax2, sprintf('0.5 \\times 0.5 = 0.25   |   %s real gate simulations', ...
+                   commafy(realRuns)), 'FontSize', 15);
 
 % Legend proxies. hold(ax2,'off') ran above, and a bare plot() after hold off CLEARS the axes --
 % with patch() proxies that went unnoticed, but as line objects it wiped the whole panel and left
@@ -299,7 +304,7 @@ hold(ax2, 'off');
 lg = legend(ax2, [pBlue pRed hMean], ...
        {'full error reach, caps = measured extremes', ...
         sprintf('middle %d%% of trials, 5th-95th pct (dashes)', round((1-2*TAIL)*100)), ...
-        'trial-weighted mean'}, 'Location', 'northwest', 'FontSize', 11);
+        'trial-weighted mean'}, 'Location', 'northwest', 'FontSize', 13);
 lg.Box = 'on';
 ax2.Toolbar.Visible = 'off';
 

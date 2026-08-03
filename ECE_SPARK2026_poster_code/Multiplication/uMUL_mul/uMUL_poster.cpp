@@ -7,8 +7,10 @@
  * plot_uMUL_poster.m turns into the poster figures. Both land in this folder, next to this
  * source file, regardless of where the test binary is launched from.
  *
- *     uMUL_poster_warmup.csv   zero-fault early-termination behaviour
- *     uMUL_poster_faults.csv   fault response, 0 through 36 flipped bits
+ *     uMUL_poster_warmup.csv           zero-fault early-termination behaviour
+ *     uMUL_poster_sensitivity.csv      exact single-flip delta of every operand site
+ *     uMUL_poster_faults_stream.csv    fault response, REGISTER HARDENED, f = 0..36 over 256 sites
+ *     uMUL_poster_faults_all.csv       fault response, NOTHING HARDENED,  f = 0..36 over 264 sites
  *
  * See HOW_THIS_DATA_WAS_MADE.txt in this folder for the full reasoning, the trial-count
  * arithmetic behind every decision, and the honest limitations.
@@ -49,7 +51,7 @@
  *   pair, while uMUL collapses the entire 5.8e75-arrangement operand space onto one number.
  *
  * -----------------------------------------------------------------------------------------
- * THE FAULT SURFACE COVERED HERE -- 264 BITS, AND WHY THOSE 264
+ * THE FAULT SURFACE COVERED HERE -- 264 BITS, SWEPT AS TWO SEPARATE CAMPAIGNS
  *
  *   Flips are injected into the OPERAND STORAGE, which is the direct counterpart of the AND
  *   gate's two operand streams:
@@ -63,6 +65,21 @@
  *   Both are static for the run, so both preserve the collapse: the faulted output is still
  *   G(value', n1'), just with a different pair of integers. That is what keeps this sweep
  *   exactly enumerable rather than sampled.
+ *
+ *   PART 2 SWEEPS THE SURFACE TWICE, AS A BEFORE-AND-AFTER ON HARDENING THE REGISTER:
+ *
+ *       2A  register hardened   256 sites, stream only.   Answer bounded to 0.25 +/- f/256.
+ *       2B  nothing hardened    264 sites, flips spread UNIFORMLY over stream and register.
+ *                               Answer reaches a hard 0.000 from ONE upset, at every flip count.
+ *
+ *   Same operand, same flip counts, same x axis -- the ONLY difference between the two panels is
+ *   whether the 8 register bits are in the target set. That is what makes them a fair pair, and
+ *   it is the poster's argument for selective hardening stated as an experiment.
+ *
+ *   Each is a real independent campaign with its own Monte Carlo and its own trial count; they
+ *   share no trials. An earlier revision instead reported ONE joint sweep split into "register
+ *   survived" / "register hit" slices, so both figures quoted the same trial count and the
+ *   damaged slice held only 8/264 of the mass at f=1.
  *
  *   THE REGISTER BITS ARE NOT LIKE THE STREAM BITS. Sensitivity, exact, printed at run time:
  *   flipping stream bits moves the answer by at most 1/256 each, while flipping value bit 7
@@ -323,8 +340,198 @@ TEST(uMULPoster, GenerateTrials) {
     }
 
     // ======================================================================================
-    // PART 2 -- FAULT SWEEP, 0..36 FLIPS OVER THE 264-BIT OPERAND SURFACE
+    // PART 2 -- TWO SEPARATE FAULT CAMPAIGNS, NOT ONE CAMPAIGN SPLIT IN TWO
     // ======================================================================================
+    // THIS REPLACED A SINGLE JOINT SWEEP, and the reason is a reporting problem, not a physics
+    // problem. The old version placed f flips anywhere on the combined 264-bit surface and then
+    // sorted the resulting outcomes into "no register bit was hit" and "at least one was",
+    // shipping both as separate figures. Both figures were therefore CONDITIONAL SLICES of one
+    // population, and both quoted that population's full trial count -- 806,376 real gate runs
+    // on each panel, for two panels that between them used those same 806,376 runs once. Worse,
+    // the register-hit slice thinned out badly at low f: at f=1 only 8 of 264 layouts land on
+    // the register, so a panel drawn from ~3% of the mass was being presented on equal footing
+    // with one drawn from the other 97%.
+    //
+    // The fix is to stop conditioning and start running two independent experiments, each with
+    // its own surface, its own flip range, its own Monte Carlo, and its own honest trial count:
+    //
+    //   2A  STREAM ONLY     surface = the 256 in_0 bits.   The value register is never touched.
+    //                       f = 0..36. Answers the question "what does uMUL do when the part it
+    //                       shares with the AND gate gets hit?", so it is the panel that is
+    //                       directly comparable to the AND gate's fault figure.
+    //
+    //   2B  REGISTER ONLY   surface = the 8 value-register bits. The stream is never touched.
+    //                       f = 0..8 AND NO FURTHER -- there are only 8 bits, so a 9th flip does
+    //                       not exist. This sweep is LITERALLY exhaustive: all 2^8 = 256 register
+    //                       states are visited, C(8,f) of them at each f, no weighting needed
+    //                       beyond uniform-over-subsets.
+    //
+    // Neither sweep is a subset of the other and neither borrows the other's trials.
+    //
+    // WHAT IS GIVEN UP BY SPLITTING. The joint sweep answered "if f upsets land somewhere in the
+    // operand storage, what happens?" -- which is the right question for a part sitting in a
+    // radiation field, where the attacker does not respect module boundaries. These two sweeps
+    // answer "what happens if the f upsets land HERE", which is the right question for deciding
+    // WHAT TO HARDEN. The joint result is still recoverable from these two by weighting them
+    // 256/264 and 8/264 per flip; it is just no longer the thing plotted.
+    std::vector<bool> fs(N);
+
+    // --------------------------------------------------------------------------------------
+    // 2A -- STREAM-ONLY SWEEP, 0..36 FLIPS OVER 256 SITES
+    // --------------------------------------------------------------------------------------
+    // f flips land on the stream and nowhere else, so value' = value = 128 throughout and the
+    // only thing that moves is the ones-count:
+    //
+    //     a  flips on the 128 positions holding a one   -> that cycle stops enabling
+    //     b  flips on the 128 positions holding a zero  -> that cycle starts enabling
+    //        with a + b = f, so n1' = 128 - a + b
+    //
+    // Layouts in the class = C(128,a) * C(128,b), and Vandermonde gives the guarantee that the
+    // decomposition is complete and non-overlapping:
+    //
+    //     SUM_a C(128,a) * C(128,f-a) = C(256,f)
+    //
+    // asserted at every flip level, in log space. This is the AND gate's decomposition with one
+    // stream instead of two, which is exactly why the two figures can be read against each other.
+    std::ostringstream sbuf2;
+    sbuf2 << "BitsFlipped,OutputOnes,OutputFraction,ErrorPerN,Probability,"
+             "MC_Probability,MC_Trials,LevelRealTrials,Log10TrialCount\n";
+
+    long long stream_classes = 0;
+    double stream_mc_worst = 0.0;
+    const long long stream_runs_start = real_runs;
+    std::cout << "\n[2A] STREAM ONLY -- 256 sites, register never touched\n"
+              << "  flips   classes    mean       min        max      MC gap\n";
+
+    for (int f = 0; f <= MAX_FLIPS; ++f) {
+        std::vector<double> mass(N + 1, 0.0);
+        const double lnorm = logC(N, f);       // f flips chosen from the 256 stream sites
+        double wsum = 0.0;
+        const long long runs_before = real_runs;
+        long long level_classes = 0;
+
+        for (int a = 0; a <= std::min(ONES, f); ++a) {
+            const int b = f - a;
+            if (b > N - ONES) continue;
+            const int n1 = ONES - a + b;
+
+            const double lw = logC(ONES, a) + logC(N - ONES, b) - lnorm;
+            if (lw < -300.0) continue;
+            const double w = std::exp(lw);
+            if (w <= 0.0) continue;
+
+            const int k = G(VALUE, n1);        // <- the real gate run (memoised)
+            ++level_classes;
+            mass[k] += w;
+            wsum += w;
+        }
+        if (wsum <= 0.0) continue;
+
+        EXPECT_NEAR(wsum, 1.0, 1e-9)
+            << "stream flip layouts do not sum to C(256," << f << ") at f=" << f;
+
+        // ---- FORWARD MONTE CARLO, STREAM SITES ONLY ---------------------------------------
+        // Fresh random in_0 with 128 ones, f of the 256 STREAM positions picked uniformly, each
+        // toggled for real, clocked through a real unit. The register is left alone, which is
+        // the entire difference from sweep 2B below.
+        std::vector<long long> mc_hist(N + 1, 0);
+        std::vector<int> pos(N);
+        for (int t = 0; t < MC_TRIALS_PER_FLIP; ++t) {
+            build_stream(fs, ONES, rng);
+            std::iota(pos.begin(), pos.end(), 0);
+            for (int i = 0; i < f; ++i) {
+                std::uniform_int_distribution<int> pick(i, N - 1);
+                std::swap(pos[i], pos[pick(rng)]);
+                fs[pos[i]] = !fs[pos[i]];
+            }
+            ++mc_hist[run_gate(fs, VALUE)];
+            ++real_runs;
+        }
+
+        double worst_gap = 0.0;
+        for (int k = 0; k <= N; ++k) {
+            if (mass[k] <= 0.0 && mc_hist[k] == 0) continue;
+            const double pe = mass[k] / wsum;
+            const double pm = static_cast<double>(mc_hist[k]) / MC_TRIALS_PER_FLIP;
+            worst_gap = std::max(worst_gap, std::fabs(pe - pm));
+        }
+        stream_mc_worst = std::max(stream_mc_worst, worst_gap);
+
+        const long long level_runs = real_runs - runs_before;
+
+        double mean_frac = 0.0;
+        int lo = -1, hi = -1;
+        for (int k = 0; k <= N; ++k) {
+            if (mass[k] <= 0.0) continue;
+            const double p = mass[k] / wsum;
+            const double frac = static_cast<double>(k) / N;
+            mean_frac += p * frac;
+            if (lo < 0) lo = k;
+            hi = k;
+            ++stream_classes;
+
+            sbuf2 << f << "," << k << ","
+                  << std::fixed << std::setprecision(10) << frac << ","
+                  << (static_cast<double>(k - TARGET) / N) << ","
+                  << std::scientific << std::setprecision(12) << p << ","
+                  << (static_cast<double>(mc_hist[k]) / MC_TRIALS_PER_FLIP) << ","
+                  << MC_TRIALS_PER_FLIP << "," << level_runs << ","
+                  << std::fixed << std::setprecision(4)
+                  << ((std::log(p) + lnorm) / std::log(10.0)) << "\n";
+        }
+
+        std::cout << std::fixed << std::setprecision(6)
+                  << std::setw(7) << f << std::setw(10) << level_classes << "  "
+                  << std::setw(9) << mean_frac << "  "
+                  << std::setw(9) << (static_cast<double>(lo) / N) << "  "
+                  << std::setw(9) << (static_cast<double>(hi) / N) << "  "
+                  << std::setw(9) << worst_gap << "\n";
+
+        EXPECT_GE(lo, 0);
+        EXPECT_LE(hi, N);
+        if (f == 0) { EXPECT_EQ(lo, TARGET); EXPECT_EQ(hi, TARGET); }
+        // With the register protected the answer CANNOT leave 0.25 +/- f/256. Asserting that is
+        // the point of the panel: it is the bound the AND gate also obeys.
+        EXPECT_GE(lo, TARGET - f) << "stream-only fault fell further than f/256 at f=" << f;
+        EXPECT_LE(hi, TARGET + f) << "stream-only fault rose further than f/256 at f=" << f;
+        EXPECT_LT(worst_gap, 0.02)
+            << "random real trials disagree with the enumerated distribution at f=" << f;
+    }
+
+    const long long stream_real_runs = real_runs - stream_runs_start;
+    {
+        const std::string fn = source_dir() + "uMUL_poster_faults_stream.csv";
+        std::ofstream f2(fn);
+        ASSERT_TRUE(f2.is_open()) << "Failed to open " << fn;
+        f2 << sbuf2.str();          // single write
+        f2.close();
+        std::cout << "     " << stream_classes << " outcome rows, "
+                  << stream_real_runs << " REAL gate simulations, worst MC gap "
+                  << stream_mc_worst << "\n     -> " << fn << std::endl;
+    }
+
+    // --------------------------------------------------------------------------------------
+    // 2B -- WHOLE-SURFACE SWEEP, 0..36 FLIPS SPREAD UNIFORMLY OVER ALL 264 SITES
+    // --------------------------------------------------------------------------------------
+    // THE PAIR 2A/2B IS A BEFORE-AND-AFTER ON ONE DESIGN DECISION: is the value register
+    // protected or not?
+    //
+    //     2A  register hardened   -> 256-bit surface, answer bounded to 0.25 +/- f/256
+    //     2B  nothing hardened    -> 264-bit surface, answer can hit 0.000 from ONE upset
+    //
+    // Both are real independent campaigns with their own Monte Carlo and their own trial count.
+    // 2B is the one that describes a part actually sitting in a radiation field, because an upset
+    // does not respect module boundaries -- it lands wherever it lands, and 8 of the 264 places it
+    // can land are catastrophic. 2A is the counterfactual you get by spending area on hardening.
+    //
+    //     (An earlier revision made 2B a register-ONLY sweep, f = 0..8. That answered "what if
+    //      you deliberately aim f upsets at the register", which is a fault-injection experiment
+    //      rather than a radiation one, and it could not show the thing this panel exists to
+    //      show: that spreading damage EVENLY across the whole unit still reaches zero. It also
+    //      had the odd property that damage FELL as flips rose, because value' = 0 needs the
+    //      subset {bit 7} alone. Uniform spreading removes that artifact -- at any f there are
+    //      plenty of layouts that strike bit 7 and put the rest on the stream.)
+    //
     // THE ENUMERATION. f flips are placed on 264 sites. Split them by where they land:
     //
     //     r  flips on the 8 register bits, choosing a specific SUBSET S -- C(8,r) subsets,
@@ -333,46 +540,39 @@ TEST(uMULPoster, GenerateTrials) {
     //     b  flips on the 128 stream positions holding a zero  -> that cycle starts enabling
     //        with r + a + b = f, so n1' = 128 - a + b
     //
-    // The faulted output is G(value', n1'), measured. The number of layouts in the class is
-    //
-    //     ways(r-subset, a, b) = C(128,a) * C(128,b)          (the subset itself is one choice)
-    //
-    // and summing checks out exactly by Vandermonde, which is the arithmetic guarantee that
-    // nothing is double counted and nothing is missed:
+    // The faulted output is G(value', n1'), measured. Layouts in the class = C(128,a)*C(128,b),
+    // and the sum checks out exactly by Vandermonde -- the arithmetic guarantee that nothing is
+    // double counted and nothing is missed:
     //
     //     SUM_r C(8,r) * SUM_a C(128,a)*C(128,f-r-a) = SUM_r C(8,r)*C(256,f-r) = C(264,f)
     //
-    // That identity is ASSERTED at every flip level below, in log space.
-    std::ostringstream buf;
-    buf << "BitsFlipped,OutputOnes,OutputFraction,ErrorPerN,Probability,"
-           "MC_Probability,MC_Trials,LevelRealTrials,ProbRegisterClean,ProbRegisterHit,"
-           "ProbMSBIntact,ProbMSBLost,Log10TrialCount\n";
+    // ASSERTED at every flip level below, in log space.
+    //
+    // TWO DECOMPOSITIONS SHIP IN THE CSV because between them they are the whole explanation:
+    //     clean / hit   was ANY of the 8 register bits struck?  P(hit) = 1 - C(256,f)/C(264,f)
+    //     MSB intact /  was BIT 7 specifically struck? Not the same question, and this is the one
+    //     MSB lost      that matters. value = 128 has exactly ONE bit set, so
+    //                       bit 7 survives -> value' in [128,255] -> answer >= 0.25
+    //                       bit 7 dies     -> value' in [0,127]   -> answer <= 0.25
+    //                   and P(bit 7 struck) = f/264 exactly -- ONE site out of 264, NOT the
+    //                   register-hit mass. Only about 13-20% of register hits go DOWN; the rest
+    //                   push the answer up.
+    std::ostringstream rbuf;
+    rbuf << "BitsFlipped,OutputOnes,OutputFraction,ErrorPerN,Probability,"
+            "MC_Probability,MC_Trials,LevelRealTrials,ProbRegisterClean,ProbRegisterHit,"
+            "ProbMSBIntact,ProbMSBLost,Log10TrialCount\n";
 
-    long long classes = 0;
-    double mc_worst = 0.0;
-    std::cout << "\n  flips   classes    mean       min        max     P(reg hit)   MC gap\n";
+    long long all_classes = 0;
+    double all_mc_worst = 0.0;
+    const long long all_runs_start = real_runs;
+    std::cout << "\n[2B] WHOLE SURFACE -- 264 sites, flips spread evenly over stream + register\n"
+              << "  flips   classes    mean       min        max    P(reg hit)  P(MSB hit)  MC gap\n";
 
-    std::vector<bool> fs(N);
     for (int f = 0; f <= MAX_FLIPS; ++f) {
-        // mass[k] = share of all layouts at this flip level whose output is k ones, carried twice
-        // over in two different decompositions. Both ship in the CSV because between them they
-        // are the entire explanation of the figure.
-        //
-        //   clean / hit   was ANY of the 8 register bits struck?
-        //   MSB intact /  was BIT 7 specifically struck? This is the split that matters, and it
-        //   MSB lost      is not the same question. value = 128 has exactly ONE bit set, so:
-        //                     bit 7 survives -> value' = 128 + mask(S) in [128,255] -> out >= 0.25
-        //                     bit 7 dies     -> value' = mask(S\{7})   in [0,127]   -> out <  0.25
-        //                 Killing the MSB leaves the operand equal to whatever the surviving low
-        //                 bits say, which is a small number, so those trials collapse toward zero.
-        //                 That population IS the low shelf of figure 3, and its mass is exactly
-        //                 f/264 -- one specific site out of 264 -- NOT the register-hit mass.
-        //                 Only about 13-20% of register hits land below 0.25; the rest go up.
         std::vector<double> mass(N + 1, 0.0), mass_clean(N + 1, 0.0), mass_hit(N + 1, 0.0),
                             mass_msb_ok(N + 1, 0.0), mass_msb_lost(N + 1, 0.0);
         const double lnorm = logC(SITES, f);     // f flips chosen from 264 sites
-        double wsum = 0.0, wsum_hit = 0.0;
-        long long level_runs = 0;
+        double wsum = 0.0, wsum_hit = 0.0, wsum_msb = 0.0;
         const long long runs_before = real_runs;
         long long level_classes = 0;
 
@@ -401,8 +601,8 @@ TEST(uMULPoster, GenerateTrials) {
                     if (r == 0) mass_clean[k] += w;
                     else      { mass_hit[k]  += w; wsum_hit += w; }
                     // The MSB is the top register bit, so its mask bit is 1 << (REG_BITS - 1).
-                    if (S & (1u << (REG_BITS - 1))) mass_msb_lost[k] += w;
-                    else                            mass_msb_ok[k]   += w;
+                    if (S & (1u << (REG_BITS - 1))) { mass_msb_lost[k] += w; wsum_msb += w; }
+                    else                              mass_msb_ok[k]   += w;
                 }
             }
         }
@@ -412,12 +612,16 @@ TEST(uMULPoster, GenerateTrials) {
         // once, or this fails. Tolerance is generous only because the sum is built in log space.
         EXPECT_NEAR(wsum, 1.0, 1e-9)
             << "flip layouts do not sum to C(264," << f << ") at f=" << f;
+        // P(bit 7 struck) = f/264 exactly -- one site out of 264, asserted rather than asserted
+        // in a comment. This is the mass of the low mode, and it is NOT the register-hit mass.
+        EXPECT_NEAR(wsum_msb, static_cast<double>(f) / SITES, 1e-9)
+            << "P(bit 7 struck) is not f/264 at f=" << f;
 
-        // ---- FORWARD MONTE CARLO OVER GENUINELY RANDOM TRIALS --------------------------------
-        // The enumeration above proves each outcome is reachable and stable. This proves the
-        // WEIGHTS are right: draw a fresh random in_0 with 128 ones, pick f of the 264 sites
-        // uniformly at random, apply them for real -- toggling stream bits, XORing register bits
-        // -- and clock the whole thing through. Nothing is steered toward a class.
+        // ---- FORWARD MONTE CARLO OVER GENUINELY RANDOM TRIALS ------------------------------
+        // Draw a fresh random in_0 with 128 ones, pick f of the 264 sites uniformly at random,
+        // apply them for real -- toggling stream bits, XORing register bits -- and clock the
+        // whole thing through. UNIFORM over all 264: nothing steers flips toward the register,
+        // which is exactly what makes this the "spread evenly" campaign.
         std::vector<long long> mc_hist(N + 1, 0);
         std::vector<int> pos(SITES);
         for (int t = 0; t < MC_TRIALS_PER_FLIP; ++t) {
@@ -433,10 +637,8 @@ TEST(uMULPoster, GenerateTrials) {
             }
             ++mc_hist[run_gate(fs, v)];
             ++real_runs;
-            ++level_runs;
         }
 
-        // Largest gap between the enumerated probability and what the random trials produced.
         double worst_gap = 0.0;
         for (int k = 0; k <= N; ++k) {
             if (mass[k] <= 0.0 && mc_hist[k] == 0) continue;
@@ -444,12 +646,9 @@ TEST(uMULPoster, GenerateTrials) {
             const double pm = static_cast<double>(mc_hist[k]) / MC_TRIALS_PER_FLIP;
             worst_gap = std::max(worst_gap, std::fabs(pe - pm));
         }
-        mc_worst = std::max(mc_worst, worst_gap);
+        all_mc_worst = std::max(all_mc_worst, worst_gap);
 
-        // Real runs at this level = the MC trials above plus any fresh G() measurements the
-        // enumeration triggered. States already measured at a lower f cost nothing again, which
-        // is why this falls toward MC_TRIALS_PER_FLIP as the sweep proceeds.
-        level_runs = real_runs - runs_before;
+        const long long level_runs = real_runs - runs_before;
 
         double mean_frac = 0.0;
         int lo = -1, hi = -1;
@@ -460,19 +659,19 @@ TEST(uMULPoster, GenerateTrials) {
             mean_frac += p * frac;
             if (lo < 0) lo = k;
             hi = k;
-            ++classes;
+            ++all_classes;
 
-            buf << f << "," << k << ","
-                << std::fixed << std::setprecision(10) << frac << ","
-                << (static_cast<double>(k - TARGET) / N) << ","
-                << std::scientific << std::setprecision(12) << p << ","
-                << (static_cast<double>(mc_hist[k]) / MC_TRIALS_PER_FLIP) << ","
-                << MC_TRIALS_PER_FLIP << "," << level_runs << ","
-                << (mass_clean[k] / wsum) << "," << (mass_hit[k] / wsum) << ","
-                << (mass_msb_ok[k] / wsum) << "," << (mass_msb_lost[k] / wsum) << ","
-                // Raw layout counts overflow any integer type; log10 keeps them readable.
-                << std::fixed << std::setprecision(4)
-                << ((std::log(p) + lnorm) / std::log(10.0)) << "\n";
+            rbuf << f << "," << k << ","
+                 << std::fixed << std::setprecision(10) << frac << ","
+                 << (static_cast<double>(k - TARGET) / N) << ","
+                 << std::scientific << std::setprecision(12) << p << ","
+                 << (static_cast<double>(mc_hist[k]) / MC_TRIALS_PER_FLIP) << ","
+                 << MC_TRIALS_PER_FLIP << "," << level_runs << ","
+                 << (mass_clean[k] / wsum) << "," << (mass_hit[k] / wsum) << ","
+                 << (mass_msb_ok[k] / wsum) << "," << (mass_msb_lost[k] / wsum) << ","
+                 // Raw layout counts overflow any integer type; log10 keeps them readable.
+                 << std::fixed << std::setprecision(4)
+                 << ((std::log(p) + lnorm) / std::log(10.0)) << "\n";
         }
 
         std::cout << std::fixed << std::setprecision(6)
@@ -481,30 +680,45 @@ TEST(uMULPoster, GenerateTrials) {
                   << std::setw(9) << (static_cast<double>(lo) / N) << "  "
                   << std::setw(9) << (static_cast<double>(hi) / N) << "  "
                   << std::setw(9) << (wsum_hit / wsum) << "  "
+                  << std::setw(10) << (wsum_msb / wsum) << "  "
                   << std::setw(9) << worst_gap << "\n";
 
         EXPECT_GE(lo, 0);
         EXPECT_LE(hi, N);
-        if (f == 0) {
-            EXPECT_EQ(lo, TARGET);
-            EXPECT_EQ(hi, TARGET);
+        if (f == 0) { EXPECT_EQ(lo, TARGET); EXPECT_EQ(hi, TARGET); }
+
+        // THE CLAIM THE PANEL EXISTS TO MAKE, AND IT HOLDS AT EVERY FLIP COUNT FROM ONE.
+        // Spreading damage evenly over the whole unit still reaches a hard zero, because some
+        // layout at every f puts a flip on bit 7 and the rest anywhere. Contrast 2A, where the
+        // register is protected and the floor is asserted to stay above 0.25 - f/256.
+        if (f >= 1) {
+            EXPECT_EQ(lo, 0)
+                << "a whole-surface fault at f=" << f << " could not zero the unit, but the "
+                << "layout striking bit 7 exists at every flip count";
         }
-        // 20k random trials against an exact distribution: sampling error alone is of order
-        // 0.003. A gap far past that would mean the enumeration and the gate disagree.
         EXPECT_LT(worst_gap, 0.02)
             << "random real trials disagree with the enumerated distribution at f=" << f;
     }
 
-    const std::string fn = source_dir() + "uMUL_poster_faults.csv";
-    std::ofstream f2(fn);
-    ASSERT_TRUE(f2.is_open()) << "Failed to open " << fn;
-    f2 << buf.str();               // single write
-    f2.close();
+    const long long all_real_runs = real_runs - all_runs_start;
+    {
+        const std::string fn = source_dir() + "uMUL_poster_faults_all.csv";
+        std::ofstream f2(fn);
+        ASSERT_TRUE(f2.is_open()) << "Failed to open " << fn;
+        f2 << rbuf.str();           // single write
+        f2.close();
+        std::cout << "     " << all_classes << " outcome rows, "
+                  << all_real_runs << " REAL gate simulations, worst MC gap "
+                  << all_mc_worst << "\n     -> " << fn << std::endl;
+    }
 
-    std::cout << "\n[PART 2] " << classes << " outcome rows over the 264-bit operand surface\n"
-              << "         " << real_runs << " REAL 256-cycle gate simulations run to produce them\n"
-              << "         worst enumerated-vs-random disagreement: " << mc_worst << "\n"
-              << "         -> " << fn << std::endl;
-    EXPECT_GT(classes, 0);
+    std::cout << "\n[PART 2] two INDEPENDENT campaigns, no shared trials:\n"
+              << "         register hardened   256 sites, f=0..36, " << stream_real_runs
+              << " real gate simulations   -> figure 2\n"
+              << "         nothing hardened    264 sites, f=0..36, " << all_real_runs
+              << " real gate simulations   -> figure 3\n"
+              << "         grand total for this file: " << real_runs << "\n";
+    EXPECT_GT(stream_classes, 0);
+    EXPECT_GT(all_classes, 0);
     EXPECT_GT(real_runs, 0);
 }
